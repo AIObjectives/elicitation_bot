@@ -33,8 +33,13 @@ from requests.auth import HTTPBasicAuth
 
 from openai import OpenAI
 
-from config1 import db, logger, OpenAI, client, twilio_client, twilio_number, assistant_id , twilio_account_sid, twilio_auth_token, cred, app 
+#from config1 import db, logger, OpenAI, client, twilio_client, twilio_number, assistant_id , twilio_account_sid, twilio_auth_token, cred, app 
 
+from config.config import (
+    db, logger, client, twilio_client,
+    twilio_number, assistant_id,
+    twilio_account_sid, twilio_auth_token
+)
 import openai
 import re
 
