@@ -48,6 +48,8 @@
 
 
 
+#These functions above will be used in the upcoming refactoring stages —
+# at the moment, they are not being actively used.
 
 
 def generate_bot_instructions(event_id):

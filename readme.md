@@ -22,7 +22,7 @@ whatsapp_bot/
 │
 ├── tests/
 │   ├── __init__.py
-│   └── test_message_handler.py  # (Basic test for your endpoint)
+│   └── test_message_handler.py  # (Basic test for your endpoint - not fully verified end-to-end)
 │
 ├── Procfile                     # For Heroku deployment
 ├── requirements.txt             # Python dependencies
