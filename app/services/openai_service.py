@@ -1,48 +1,6 @@
 
 from config.config import client, logger,db
 
-
-
-# def extract_text_from_messages(messages):
-#     # placeholder for your logic
-#     from agent_functions2 import extract_text_from_messages as _fn
-#     return _fn(messages)
-
-# def extract_event_id_with_llm(text):
-#     from agent_functions2 import extract_event_id_with_llm as _fn
-#     return _fn(text)
-
-# def extract_name_with_llm(text, event_id):
-#     from agent_functions2 import extract_name_with_llm as _fn
-#     return _fn(text, event_id)
-
-# def event_id_valid(event_id):
-#     from agent_functions2 import event_id_valid as _fn
-#     return _fn(event_id)
-
-# def create_welcome_message(event_id, participant_name=None):
-#     from agent_functions2 import create_welcome_message as _fn
-#     return _fn(event_id, participant_name)
-
-# def extract_age_with_llm(text, event_id):
-#     from agent_functions2 import extract_age_with_llm as _fn
-#     return _fn(text, event_id)
-
-# def extract_gender_with_llm(text, event_id):
-#     from agent_functions2 import extract_gender_with_llm as _fn
-#     return _fn(text, event_id)
-
-# def extract_region_with_llm(text, event_id):
-#     from agent_functions2 import extract_region_with_llm as _fn
-#     return _fn(text, event_id)
-
-
-
-
-#####
-
-
-
 def is_valid_name(name):
     if not name:
         return False
@@ -69,7 +27,6 @@ def extract_text_from_messages(messages):
 
 def extract_event_id_with_llm(user_input):
     """Extract the event ID from the user's input using LLM analysis."""
-    #from multiconf3_3 import db, client, logger
     # Fetch all valid event IDs from Firestore
     try:
         collections = db.collections()
@@ -175,7 +132,7 @@ def extract_name_with_llm(user_input, event_id):
 
 def event_id_valid(event_id):
     """ Validate event ID by checking if it exists in Firestore """
-    #from multiconf3_3 import db, logger
+    
     try:
         # Query Firestore for all collections starting with 'AOI_'
         collections = db.collections()
