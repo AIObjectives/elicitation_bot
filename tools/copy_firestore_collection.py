@@ -32,7 +32,7 @@ def copy_subcollection(source_subcollection_ref, target_subcollection_ref):
 
 # Define source and target collection names
 source_collection_name = 'xxx'
-target_collection_name = 'xxx'
+target_collection_name = 'xxx'  
 
 # Get references to the source and target collections
 source_collection_ref = db.collection(source_collection_name)

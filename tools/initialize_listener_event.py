@@ -54,7 +54,7 @@ def initialize_event_collection(event_id, event_name, event_location, event_back
         'event_location': event_location,
         'event_background': event_background,
         'event_date': event_date,
-        'welcome_message': f"歡迎來到 TAICA 課程，現在機器人已開始聆聽您的發言",
+        'welcome_message': f"歡迎來到 AOI 課程，現在機器人已開始聆聽您的發言",
         'initial_message': initial_message,
         'completion_message': completion_message,
         'languages': languages,
