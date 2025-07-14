@@ -47,7 +47,7 @@ def extract_event_id_with_llm(user_input):
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-4o", # do mini!!!! 8X cheaper
             messages=[
                 {"role": "system", "content": system_message},
                 {"role": "user", "content": user_input}
