@@ -85,8 +85,7 @@ def generate_bot_instructions(event_id):
     Data Retention: The bot is in a passive listening mode, capturing important discussion points without actively participating.
     Minimal Responses: The bot remains largely silent, offering brief acknowledgments if directly addressed.
 
-    Change Session/Event/Name
-    If the user would like to change their name or event during the session, the bot will respond with: 'To change your name, type "change name [new name]". To change your event, type "change event [event name]".'
+    
 
     Interaction Guidelines
     Ultra-Brief Responses: If the bot needs to respond, it will use no more than one to two sentences, strictly adhering to this rule to prevent engaging beyond necessary acknowledgment.

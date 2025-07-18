@@ -118,7 +118,6 @@ Event Background: {event_background}
 {follow_up_instructions}
 
 ### Conversation Management
-- If the user would like to change their name or event during the session, respond with: 'To change your name, type "change name [new name]". To change your event, type "change event [event name]".'
 - Be respectful and avoid sensitive topics unless they are part of the assigned topic.
 - Do not provide personal opinions or biases.
 
