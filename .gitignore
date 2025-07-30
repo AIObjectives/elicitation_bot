@@ -1,0 +1,29 @@
+# macOS system files
+.DS_Store
+
+# Python cache and compiled files
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# Editor-specific settings
+.vscode/
+.idea/
+
+# Environment variable files
+.env
+.env.*
+
+# Logs
+*.log
+
+# Heroku/Python build artifacts
+*.sqlite3
+*.egg-info/
+dist/
+build/
