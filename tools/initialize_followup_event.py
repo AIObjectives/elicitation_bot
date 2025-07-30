@@ -6,7 +6,7 @@ import logging
 from uuid import uuid4
 
 # Initialize Firebase
-cred = credentials.Certificate('xxx')
+cred = credentials.Certificate('xxxx')  # Change this to your Firebase service account JSON path
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
@@ -17,18 +17,18 @@ logger = logging.getLogger(__name__)
 # Example extra questions dict from listener mode
 extra_questions = {
     "ExtraQuestion1": {
-        "enabled": True,
+        "enabled": False,
         "id": "extract_name_with_llm",
-        "text": "whats your beaitful name?",
+        "text": "How would you like to be addressed during this session? (Please feel free to use your own name, or another name)",
         "order": 1
     },
     "ExtraQuestion2": {
         "enabled": True,
-        "text": "現在請您於對話框輸入學號",
+        "text": "Please remember to record yourself every time you speak. How? When you’re ready to start speaking, hold the microphone button and slide it up to stay recording. Press send each time you finish speaking. Are you ready to start?",
         "order": 2
     },
     "ExtraQuestion3": {
-        "enabled": True,
+        "enabled": False,
         "text": "現在請您於對話框輸入所屬學校",
         "order": 3
     },
@@ -46,7 +46,6 @@ def initialize_event_collection(
     event_location,
     event_background,
     event_date,
-    extraction_settings,
     bot_topic,
     bot_aim,
     bot_principles,
@@ -59,6 +58,7 @@ def initialize_event_collection(
 ):
     """Initializes the Firestore collection and stores event info, bot settings, survey questions,
     follow-up questions, and extra questions within the 'info' document."""
+
     collection_ref = db.collection(f'AOI_{event_id}')
     info_doc_ref = collection_ref.document('info')
     
@@ -94,10 +94,10 @@ def initialize_event_collection(
         'event_location': event_location,
         'event_background': event_background,
         'event_date': event_date,
-        'welcome_message': f"Welcome to the {event_name} at {event_location}. You can now start sending text and audio messages. To change your name, type 'change name [new name]'. To change your event, type 'change event [event name]'. Here is the first question:",
+        'welcome_message': f"What could make you change your mind about who you would vote for?",
         'initial_message': initial_message,
         'completion_message': completion_message,
-        'extraction_settings': extraction_settings,
+        
         'bot_topic': bot_topic,
         'main_question': main_question,
         'bot_aim': bot_aim,
@@ -106,7 +106,8 @@ def initialize_event_collection(
         'bot_additional_prompts': bot_additional_prompts,
         'languages': languages,
         'follow_up_questions': follow_up_toggle,
-        'extra_questions': extra_questions  # Add extra questions block
+        'extra_questions': extra_questions,  # Add extra questions block
+        'mode': 'followup'      # or "listener" / "survey"
     })
     
     logger.info(f"Event '{event_name}' initialized with follow-up and extra questions.")
@@ -114,18 +115,13 @@ def initialize_event_collection(
 
 # Define event details and survey questions
 if __name__ == "__main__":
-    event_id = "trialfollowup"
-    event_name = "trialfollowup"
+    event_id = "FollowupMode2025Demo"
+    event_name = "Follow-up Mode 2025 Demo"
     main_question = "What could make you change your mind about who you would vote for?"
     event_location = "Global"
     event_background = "A nationwide discussion on what could influence voters' decisions in upcoming elections."
-    event_date = "2025-15-01"
-    extraction_settings = {
-        "name_extraction": True,
-        "age_extraction": False,
-        "gender_extraction": False,
-        "region_extraction": False
-    }
+    event_date = "2025"
+   
     bot_topic = "Experiences and challenges of LBQ+ women in the workplace and community"
     bot_aim = "Encourage users to reflect on factors that could influence their voting decisions."
     bot_principles = [
@@ -136,14 +132,13 @@ if __name__ == "__main__":
     bot_personality = "Empathetic, supportive, and respectful"
     bot_additional_prompts = [
         "What are some unique challenges you face?",
-        "xxx"
+        "How can your workplace better support LBQ+ individuals?"
     ]
     languages = ["English", "French", "Swahili"]
 
     initial_message = (
         "Thank you for agreeing to participate. We want to assure you that none of the data you provide will be directly linked back to you. "
-        "Your identity is protected through secure and encrypted links. How would you like to be addressed during this session? "
-        "(Please feel free to use your own name, or another name.)"
+        "Your identity is protected through secure and encrypted links."
     )
 
     completion_message = (
@@ -157,7 +152,6 @@ if __name__ == "__main__":
         event_location,
         event_background,
         event_date,
-        extraction_settings,
         bot_topic,
         bot_aim,
         bot_principles,
@@ -166,6 +160,6 @@ if __name__ == "__main__":
         main_question,
         languages,
         initial_message,
-        completion_message
+        completion_message,
     )
 

@@ -4,7 +4,7 @@ from fastapi import FastAPI, Form, Response
 import logging
 from uuid import uuid4
 
-cred = credentials.Certificate('xxx')
+cred = credentials.Certificate('xxxx') # Path to your Firebase credentials file
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
@@ -26,7 +26,9 @@ def initialize_event_collection(
     completion_message,
     extra_questions
 ):
-    collection_ref = db.collection(event_id)
+    
+
+    collection_ref = db.collection(f'AOI_{event_id}')
     info_doc_ref = collection_ref.document('info')
 
     formatted_questions = []
@@ -49,22 +51,23 @@ def initialize_event_collection(
         'next_message': next_message,
         'questions': formatted_questions,
         'completion_message': completion_message,
-        'extra_questions': extra_questions
+        'extra_questions': extra_questions,
+        'mode': 'survey'      # or "followup" / "survey"
     })
 
     logger.info(f"Event '{event_name}' initialized with {len(formatted_questions)} survey questions and {len(extra_questions)} extra questions.")
 
 if __name__ == "__main__":
     # ConnexUs Survey 2025 - Survey Mode
-    event_id = "AOI_xx"
-    event_name = "xxx Survey 2025"
+    event_id = "SurveyMode2025Demo"
+    event_name = "Survey Mode 2025 Demo"
     event_location = "online"
-    event_date = "2025-04-07"
-    event_background = "xxx background information"
+    event_date = "2025"
+    event_background = "This WhatsApp agent is designed to conduct quick and engaging surveys directly through chat. It can collect user responses in real time, support multiple languages, and adapt its tone based on the audience. Whether it's gathering feedback after an event, running a community poll, or collecting research data, the agent ensures a smooth, conversational experience. It also stores responses securely and can trigger follow-up messages based on answers. The system is fully customizable to fit different survey flows and objectives. "
     languages = ["English", "Arabic", "French", "Spanish", "Kurdish", "Russian"]
 
-    initial_message = "Welcome to the xxx User Survey! We greatly value your experiences and feedback. Your responses will be secure and used to improve the platform."
-    welcome_message = "Thank you for your input. There are 9 questions now for your reflection and response. Please respond to each question in a single message only - by text or voice. Are you ready to start?"
+    initial_message = "Welcome to the Survey Mode Demo! We greatly value your experiences and feedback. Your responses will be secure and used to improve the platform."
+    welcome_message = "Thank you for your input. There are X questions now for your reflection and response. Please respond to each question in a single message only - by text or voice. Are you ready to start?"
 
     next_message = ""  # Not applicable in this case
     completion_message = "Thank you for your time and participation! Your responses have been recorded."
@@ -86,19 +89,19 @@ if __name__ == "__main__":
     extra_questions = {
 
          "ExtraQuestion1": {
-            "enabled": True,
-            "id": "initialquestion",
-            "text": " Please provide your organization and job title to get started. You may also say ‘student’ or ‘unaffiliated’.",
+            "enabled": False,
+            "id": "extract_name_with_llm",  # function ID if needed
+            "text": "How would you like to be addressed during this session? (Please feel free to use your own name, or another name)",
             "order": 1
         },
         "ExtraQuestion2": {
-            "enabled": True,
+            "enabled": False,
             "id": "specialization_area",
             "text": "What area(s) do you specialize in (for ex. peacebuilding, development, environment, youth, technology, etc.)?",
             "order": 2
         },
         "ExtraQuestion3": {
-            "enabled": True,
+            "enabled": False,
             "id": "location_info",
             "text": "Where are you located (city and/or country)?",
             "order": 3

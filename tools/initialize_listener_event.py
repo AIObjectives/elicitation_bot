@@ -3,8 +3,7 @@ from firebase_admin import credentials, firestore
 import logging
 
 # 1) Initialize Firebase
-#    Change the path below to the location of your Firebase service account JSON
-cred = credentials.Certificate('...')
+cred = credentials.Certificate('xxxx')  # Change this to your Firebase service account JSON path
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
@@ -28,16 +27,16 @@ def initialize_event_collection(event_id, event_name, event_location, event_back
         "ExtraQuestion1": {
             "enabled": True,
             "id": "extract_name_with_llm",   # function ID if needed
-            "text": "現在請您於對話框輸入希望在呈現意見時的暱稱，中英文皆可",
+            "text": "How would you like to be addressed during this session? (Please feel free to use your own name, or another name)",
             "order": 1
         },
         "ExtraQuestion2": {
-            "enabled": True,
+            "enabled": False,
             "text": "現在請您於對話框輸入學號",
             "order": 2
         },
         "ExtraQuestion3": {
-            "enabled": True,
+            "enabled": False,
             "text": "現在請您於對話框輸入所屬學校",
             "order": 3
         },
@@ -54,11 +53,12 @@ def initialize_event_collection(event_id, event_name, event_location, event_back
         'event_location': event_location,
         'event_background': event_background,
         'event_date': event_date,
-        'welcome_message': f"歡迎來到 AOI 課程，現在機器人已開始聆聽您的發言",
+        'welcome_message': f"Please remember to record yourself every time you speak. How? When you’re ready to start speaking, hold the microphone button and slide it up to stay recording. Press send each time you finish speaking.",
         'initial_message': initial_message,
         'completion_message': completion_message,
         'languages': languages,
-        'extra_questions': extra_questions
+        'extra_questions': extra_questions,
+        'mode': 'listener'      # or "followup" / "survey"
     })
     
     logger.info(f"[initialize_event_collection] Event '{event_name}' initialized/overwritten with extra questions.")
@@ -69,7 +69,7 @@ def add_extra_question(event_id, question_key, text, enabled=True, order=1, func
     Adds or updates a single extra question to the existing 'extra_questions' map
     inside the 'info' document for the given event_id.
     """
-    info_doc_ref = db.collection(f'AOI_{event_id}').document('info')
+    info_doc_ref = db.collection(f'{event_id}').document('info')
     doc_snapshot = info_doc_ref.get()
 
     if not doc_snapshot.exists:
@@ -102,13 +102,13 @@ if __name__ == "__main__":
     # ---------------------------------------------------------------------
     #  EXAMPLE USAGE 1: Initialize a brand new event (OVERWRITES everything)
     # ---------------------------------------------------------------------
-    event_id = "xxx"
-    event_name = "xxx"
-    event_location = "Taiwan"
-    event_background = "You should already know this and you can ask your professor!"
+    event_id = "ListenerMode2025Demo"
+    event_name = "Listener Mode 2025 Demo"
+    event_location = "Earth"
+    event_background = "The Listener Mode agent is designed to gather open-ended input from users in a natural, conversational flow. Instead of structured survey questions, it encourages free-form responses, making it ideal for collecting stories, reflections, or detailed feedback. The agent intelligently extracts key data such as event names, demographics, or themes using LLM-powered parsing. It’s especially useful in early engagement phases when user context is still unknown. The system is flexible and can prompt for clarification or follow-ups as needed."
     event_date = "2025"
     languages = ["Mandarin", "English"]
-    initial_message = "歡迎您使用本課程指定的 Talk to the City 線上公共討論系統。為了確認您的課堂參與，系統將請您依序提供所屬學校與學號，並以加密方式傳輸。這些資料僅用於記錄您的參與狀況，並於每週記錄完成後刪除。本課程僅依據您是否參與來評分，討論內容則不列入評分。"
+    initial_message = "Thank you for joining this event! None of the data you provide will be directly linked back to you. Your identity is protected through secure and encrypted links."
     completion_message = "Thank you for participating in this event. Your responses have been recorded."
 
     initialize_event_collection(
