@@ -6,7 +6,7 @@ import logging
 from uuid import uuid4
 
 # Initialize Firebase
-cred = credentials.Certificate('xxxx')  # Change this to your Firebase service account JSON path
+cred = credentials.Certificate('/Users/emreturan/Desktop/firebase2/AOIFIREBASE/aoiwhatsappbot1-firebase-adminsdk-fbsvc-748e2a2606.json')
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
@@ -53,6 +53,7 @@ def initialize_event_collection(
     bot_additional_prompts,
     main_question,
     languages,
+    language_guidance,
     initial_message,
     completion_message
 ):
@@ -105,6 +106,7 @@ def initialize_event_collection(
         'bot_personality': bot_personality,
         'bot_additional_prompts': bot_additional_prompts,
         'languages': languages,
+        'language_guidance': language_guidance,
         'follow_up_questions': follow_up_toggle,
         'extra_questions': extra_questions,  # Add extra questions block
         'mode': 'followup'      # or "listener" / "survey"
@@ -115,8 +117,8 @@ def initialize_event_collection(
 
 # Define event details and survey questions
 if __name__ == "__main__":
-    event_id = "FollowupMode2025Demo"
-    event_name = "Follow-up Mode 2025 Demo"
+    event_id = "MultiLanFollowupMode2025Demo"
+    event_name = "MultiLanFollow-up Mode2025 Demo"
     main_question = "What could make you change your mind about who you would vote for?"
     event_location = "Global"
     event_background = "A nationwide discussion on what could influence voters' decisions in upcoming elections."
@@ -135,6 +137,8 @@ if __name__ == "__main__":
         "How can your workplace better support LBQ+ individuals?"
     ]
     languages = ["English", "French", "Swahili"]
+    #added
+    language_guidance = "The bot should prioritize matching the user's language when detected, but default to English if unclear. Avoid switching languages mid-conversation."
 
     initial_message = (
         "Thank you for agreeing to participate. We want to assure you that none of the data you provide will be directly linked back to you. "
@@ -159,6 +163,7 @@ if __name__ == "__main__":
         bot_additional_prompts,
         main_question,
         languages,
+        language_guidance,
         initial_message,
         completion_message,
     )

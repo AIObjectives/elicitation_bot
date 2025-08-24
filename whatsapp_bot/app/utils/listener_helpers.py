@@ -66,6 +66,7 @@ def generate_bot_instructions(event_id):
         event_name = event_info.get('event_name', 'the event')
         event_location = event_info.get('event_location', 'the location')
         event_background = event_info.get('event_background', 'the background')
+        language_guidance = event_info.get('language_guidance', '')
     else:
         event_name = 'the event'
         event_location = 'the location'
@@ -77,6 +78,10 @@ def generate_bot_instructions(event_id):
 
     Event Background
     {event_background}
+
+    Language Behavior
+    {language_guidance if language_guidance else "No specific language behavior was requested. The bot defaults to matching the user's language when possible."}
+
 
     Bot Personality
     The bot is programmed to be non-intrusive and neutral, offering no more than essential interaction required to acknowledge participants' inputs.

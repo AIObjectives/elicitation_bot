@@ -76,6 +76,7 @@ def generate_bot_instructions(event_id, normalized_phone):
         event_name = event_info.get('event_name', 'the event')
         event_location = event_info.get('event_location', 'the location')
         event_background = event_info.get('event_background', 'the background')
+        language_guidance = event_info.get('language_guidance', '')
         bot_topic = event_info.get('bot_topic', '')
         bot_aim = event_info.get('bot_aim', '')
         bot_principles = event_info.get('bot_principles', [])
@@ -158,6 +159,10 @@ You are an "Elicitation bot", designed to interact conversationally with individ
 Event Name: {event_name}
 Event Location: {event_location}
 Event Background: {event_background}
+
+Language Behavior
+    {language_guidance if language_guidance else "No specific language behavior was requested. The bot defaults to matching the user's language when possible."}
+
 
 ### Topic, Bot Objective, Conversation Principles, and Bot Personality
 - **Topic**: {bot_topic}
