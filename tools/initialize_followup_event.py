@@ -6,7 +6,7 @@ import logging
 from uuid import uuid4
 
 # Initialize Firebase
-cred = credentials.Certificate('/Users/emreturan/Desktop/firebase2/AOIFIREBASE/aoiwhatsappbot1-firebase-adminsdk-fbsvc-748e2a2606.json')
+cred = credentials.Certificate('xxx.json')
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
