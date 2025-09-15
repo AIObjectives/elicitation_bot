@@ -1,0 +1,21 @@
+{
+  "event_id": "AOI_demo",
+  "phone_number": "whatsapp:+1234567890",
+  "doc": {
+    "summary": "User believes AI should be tightly regulated to protect jobs and privacy.",
+    "agreeable_claims": [
+      "- [12] AI oversight prevents abuse in employment decisions.",
+      "- [37] Regulation reduces privacy risks from large-scale data use."
+    ],
+    "opposing_claims": [
+      "- [5] Heavy regulation slows life-saving innovation.",
+      "- [44] Market incentives already curb harmful uses."
+    ],
+    "claim_selection_reason": "Chosen to expose tension between safety and innovation.",
+    "second_round_intro_done": false,
+    "second_round_interactions": [
+      {"message": "What are we doing here exactly?"},
+      {"response": "We’re contrasting your view with others to pressure-test it."}
+    ]
+  }
+}
