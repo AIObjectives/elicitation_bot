@@ -1,112 +1,60 @@
-
-
-
-
-
-# currently hardcoded - subject to change
-import logging
 from typing import Dict, Any, List, Optional, Tuple
-from datetime import datetime
-from firebase_admin import firestore
-from openai import OpenAI
+from config.config import db, logger, client
+from app.delibration.summarizer import summarize_and_store
+from app.delibration.find_perspectives import select_and_store_for_event
 
-db = firestore.client()
-client = OpenAI()
-logger = logging.getLogger(__name__)
-
-# -----------------------------
-# Fetch report / metadata once
-# -----------------------------
-def fetch_report_metadata(event_id: str) -> Dict[str, Any]:
-    event_path = event_id if event_id.startswith("AOI_") else f"AOI_{event_id}"
-    info_ref = db.collection(event_path).document("info")
-    info_doc = info_ref.get()
-    if not info_doc.exists:
+# ---------- helpers ----------
+def _fetch_report_metadata(event_id: str) -> Dict[str, Any]:
+    path = f"AOI_{event_id}" if not event_id.startswith("AOI_") else event_id
+    info = db.collection(path).document("info").get()
+    if not info.exists:
         return {}
-    src = (info_doc.to_dict() or {}).get("second_round_claims_source", {}) or {}
-    collection = src.get("collection")
-    document = src.get("document")
-    if not collection or not document:
+    src = (info.to_dict() or {}).get("second_round_claims_source", {}) or {}
+    col, doc = src.get("collection"), src.get("document")
+    if not col or not doc:
         return {}
-    rep = db.collection(collection).document(document).get()
+    rep = db.collection(col).document(doc).get()
     return (rep.to_dict() or {}).get("metadata", {}) if rep.exists else {}
 
-# ---------------------------------------
-# Pull user context + last turns to ground
-# ---------------------------------------
-def get_user_context(
-    event_id: str,
-    phone_number: str,
-    history_k: int = 6,
-) -> Optional[Tuple[str, List[str], List[str], Optional[str], List[Dict[str, str]], bool]]:
-    """
-    Returns:
-      summary, agreeable, opposing, claim_selection_reason, recent_turns, intro_done
-    recent_turns: list of {'role': 'user'|'assistant', 'text': str}
-    """
-    event_path = event_id if event_id.startswith("AOI_") else f"AOI_{event_id}"
-    user_ref = db.collection(event_path).document(phone_number)
-    snap = user_ref.get()
+def _get_user_context(event_id: str, phone: str, history_k: int = 6):
+    path = f"AOI_{event_id}" if not event_id.startswith("AOI_") else event_id
+    snap = db.collection(path).document(phone).get()
     if not snap.exists:
         return None
+    d = snap.to_dict() or {}
+    summary   = d.get("summary")
+    agreeable = d.get("agreeable_claims", []) or []
+    opposing  = d.get("opposing_claims", []) or []
+    reason    = d.get("claim_selection_reason")
+    intro_done= bool(d.get("second_round_intro_done", False))
+    raw = d.get("second_round_interactions", []) or []
+    turns = []
+    for it in raw:
+        if "message" in it:    turns.append({"role": "user", "text": str(it["message"])})
+        elif "response" in it: turns.append({"role": "assistant", "text": str(it["response"])})
+    return summary, agreeable, opposing, reason, turns[-history_k:], intro_done
 
-    data = snap.to_dict() or {}
-    summary   = data.get("summary")
-    agreeable = data.get("agreeable_claims", []) or []
-    opposing  = data.get("opposing_claims", []) or []
-    reason    = data.get("claim_selection_reason")
-    intro_done = bool(data.get("second_round_intro_done", False))
-
-    # Build lightweight recent turns from 'second_round_interactions'
-    raw = data.get("second_round_interactions", []) or []
-    turns: List[Dict[str, str]] = []
-    for item in raw:
-        if "message" in item:
-            turns.append({"role": "user", "text": str(item["message"])})
-        elif "response" in item:
-            turns.append({"role": "assistant", "text": str(item["response"])})
-
-    turns = turns[-history_k:]
-
-    if not summary or (not agreeable and not opposing):
-        return None
-    return summary, agreeable, opposing, reason, turns, intro_done
-
-# ---------------------------------------
-# Compose a prompt that is *stateful* + brief
-# ---------------------------------------
-def build_second_round_message(
-    user_msg: str,
-    summary: str,
-    agreeable: List[str],
-    opposing: List[str],
-    metadata: Dict[str, Any],
-    claim_selection_reason: Optional[str],
-    recent_turns: List[Dict[str, str]],
-    intro_done: bool,
-) -> Optional[str]:
-
-    # Ground with short history
+def _build_reply(user_msg, summary, agreeable, opposing, metadata, reason, recent_turns, intro_done) -> Optional[str]:
     history_block = ""
     if recent_turns:
         parts = []
         for t in recent_turns:
             role = "User" if t["role"] == "user" else "Assistant"
-            snippet = " ".join(t["text"].split())  # squash whitespace
+            snippet = " ".join(t["text"].split())
             if len(snippet) > 220:
                 snippet = snippet[:220] + "…"
             parts.append(f"{role}: {snippet}")
         history_block = "Recent Dialogue (latest last):\n" + "\n".join(parts) + "\n\n"
 
-    # Only show claims on first turn unless asked
+    agree_block, oppose_block = "(none)", "(none)"
     if intro_done:
-        agree_block  = "(hidden—show only if user asks)"
+        agree_block = "(hidden—show only if user asks)"
         oppose_block = "(hidden—show only if user asks)"
     else:
-        agree_block  = "\n".join(agreeable[:2]) if agreeable else "(none)"
-        oppose_block = "\n".join(opposing[:2])  if opposing  else "(none)"
+        if agreeable: agree_block = "\n".join(agreeable[:2])
+        if opposing:  oppose_block = "\n".join(opposing[:2])
 
-    reason_line = f"\nClaim selection note: {claim_selection_reason}" if (claim_selection_reason and not intro_done) else ""
+    reason_line = f"\nClaim selection note: {reason}" if (reason and not intro_done) else ""
 
     system_prompt = (
         "You are a concise, context-aware *second-round deliberation* assistant.\n"
@@ -142,48 +90,39 @@ def build_second_round_message(
             temperature=0.35,
             max_tokens=200,
         )
-        return resp.choices[0].message.content.strip()
+        return (resp.choices[0].message.content or "").strip()
     except Exception as e:
         logger.error(f"[2nd-round] GPT error: {e}")
         return None
 
-# ---------------------------------------
-# Public entry used by your message handler
-# ---------------------------------------
-def run_second_round_for_user(
-    event_id: str,
-    phone_number: str,
-    user_msg: Optional[str] = None
-) -> Optional[str]:
-    """Return the agent's brief, context-aware reply."""
-    if not user_msg:
-        user_msg = ""
+# ---------- public entry ----------
+def run_second_round_for_user(event_id: str, phone_number: str, user_msg: Optional[str] = "") -> Optional[str]:
+    """
+    If the user lacks summary or claim selections, this will:
+      1) summarize_and_store(event_id, only_for=[phone_number])
+      2) select_and_store_for_event(event_id, only_for=[phone_number])
+    Then it retries once to build the reply.
+    """
+    def _attempt(after_warm: bool = False) -> Optional[str]:
+        meta = _fetch_report_metadata(event_id)
+        ctx = _get_user_context(event_id, phone_number)
+        if not ctx:
+            return None
+        summary, agreeable, opposing, reason, turns, intro_done = ctx
+        if not summary or (not agreeable and not opposing):
+            if after_warm:
+                return None
+            # warm just this user
+            summarize_and_store(event_id, only_for=[phone_number])
+            select_and_store_for_event(event_id, only_for=[phone_number])
+            return _attempt(after_warm=True)
+        return _build_reply(user_msg, summary, agreeable, opposing, meta, reason, turns, intro_done)
 
-    metadata = fetch_report_metadata(event_id)
-    ctx = get_user_context(event_id, phone_number)
-    if not ctx:
+    reply = _attempt()
+    if reply is None:
         return None
 
-    summary, agreeable, opposing, reason, recent_turns, intro_done = ctx
-
-    reply = build_second_round_message(
-        user_msg=user_msg,
-        summary=summary,
-        agreeable=agreeable,
-        opposing=opposing,
-        metadata=metadata,
-        claim_selection_reason=reason,
-        recent_turns=recent_turns,
-        intro_done=intro_done,
-    )
-    if not reply:
-        return None
-
-    # Mark intro done after first successful response
-    if not intro_done:
-        event_path = event_id if event_id.startswith("AOI_") else f"AOI_{event_id}"
-        db.collection(event_path).document(phone_number).set(
-            {"second_round_intro_done": True}, merge=True
-        )
-
+    # mark intro finished after a successful turn
+    path = f"AOI_{event_id}" if not event_id.startswith("AOI_") else event_id
+    db.collection(path).document(phone_number).set({"second_round_intro_done": True}, merge=True)
     return reply
