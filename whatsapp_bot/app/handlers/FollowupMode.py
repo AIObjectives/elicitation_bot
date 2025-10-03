@@ -33,7 +33,7 @@ def _norm(s: str) -> str:
 
 
 def is_second_round_enabled(event_id: str) -> bool:
-    """Return True iff info.second_round_claims_source.enabled is truthy.
+    """Return True if info.second_round_claims_source.enabled is truthy.
        Backward-compatible with old top-level 'second_deliberation_enabled'."""
     event_path = event_id if event_id.startswith("AOI_") else f"AOI_{event_id}"
     info_ref = db.collection(event_path).document("info")
@@ -43,7 +43,7 @@ def is_second_round_enabled(event_id: str) -> bool:
 
     info = info_doc.to_dict() or {}
 
-    # New schema (as in your screenshot)
+    
     src = info.get("second_round_claims_source") or {}
     if isinstance(src, dict):
         val = src.get("enabled")
