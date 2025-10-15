@@ -134,7 +134,7 @@ if __name__ == "__main__":
     event_date = "2025"
    
     bot_topic = "AI manifestos and their implications"
-    bot_aim = "to encourge users to share their perspectives manifestos on the future of AI"
+    bot_aim = "to encourage users to share their perspectives manifestos on the future of AI"
     bot_principles = [
         "Avoid repeating user responses verbatim. Instead, acknowledge their input with concise and meaningful replies, such as 'Thank you for your input' or similar",
         "Respect privacy and confidentiality",

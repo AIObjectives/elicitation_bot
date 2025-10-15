@@ -1,7 +1,7 @@
 from typing import Dict, Any, List, Optional, Tuple
 from config.config import db, logger, client
-from app.delibration.summarizer import summarize_and_store
-from app.delibration.find_perspectives import select_and_store_for_event
+from app.deliberation.summarizer import summarize_and_store
+from app.deliberation.find_perspectives import select_and_store_for_event
 
 # ---------- helpers ----------
 def _fetch_report_metadata(event_id: str) -> Dict[str, Any]:

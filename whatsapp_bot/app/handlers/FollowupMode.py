@@ -25,7 +25,7 @@ from app.services.openai_service import (
 )
 from app.utils.followup_helpers import generate_bot_instructions
 
-from app.delibration.second_round_agent import run_second_round_for_user
+from app.deliberation.second_round_agent import run_second_round_for_user
 
 def _norm(s: str) -> str:
     # collapse whitespace + lowercase to avoid trivial duplicates

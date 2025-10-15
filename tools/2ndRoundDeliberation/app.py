@@ -10,20 +10,28 @@ from google.oauth2 import service_account
 import firebase_admin
 from firebase_admin import credentials, firestore
 
-# ====================================================
-# ENVIRONMENT VARIABLES (set in Heroku dashboard)
-# ====================================================
-FIREBASE_SA_JSON = os.environ.get("FIREBASE_SA_JSON")  # full JSON string
-GCS_SA_JSON = os.environ.get("GCS_SA_JSON")            # full JSON string
+FIREBASE_SA_JSON = os.environ.get("FIREBASE_SA_JSON")  
+GCS_SA_JSON = os.environ.get("GCS_SA_JSON")            
 DEFAULT_COLLECTION_NAME = os.environ.get("DEFAULT_COLLECTION_NAME", "t3cloaderapp")
 DEFAULT_BUCKET_NAME = os.environ.get("DEFAULT_BUCKET_NAME", "tttc-light-newbucket")
+FIREBASE_WEB_API_KEY = os.environ.get("FIREBASE_WEB_API_KEY")  
+
+# ====================================================
+# ENV VAR VALIDATION (fail early if required ones missing)
+# ====================================================
+required_envs = {
+    "FIREBASE_SA_JSON": FIREBASE_SA_JSON,
+    "GCS_SA_JSON": GCS_SA_JSON,
+    "FIREBASE_WEB_API_KEY": FIREBASE_WEB_API_KEY,
+}
+
+missing = [k for k, v in required_envs.items() if not v]
+if missing:
+    raise RuntimeError(f"Missing required environment variables: {', '.join(missing)}")
 
 FIRESTORE_DOC_HARD_LIMIT = 1_048_576
 SAFETY_BYTES = 950_000
 
-# ====================================================
-# FIREBASE INIT
-# ====================================================
 def init_firebase():
     if not firebase_admin._apps:
         if not FIREBASE_SA_JSON:
@@ -36,44 +44,60 @@ def init_firebase():
 db = init_firebase()
 
 # ====================================================
-# AUTH HELPERS
+# AUTH HELPERS (Firebase Auth via REST API)
 # ====================================================
-def _hash_pw(pw: str) -> str:
-    return hashlib.sha256((pw or "").encode()).hexdigest()
 
+def validate_user(email: str, password: str) -> bool:
+    """
+    Validate user credentials against Firebase Authentication (Email + Password).
+    You must enable Email/Password provider in Firebase console and create users manually.
+    """
+    if not FIREBASE_WEB_API_KEY:
+        st.error("Missing FIREBASE_WEB_API_KEY env var.")
+        return False
 
-def validate_user(username: str, password: str) -> bool:
-    """Check Firestore users collection for matching username + password hash."""
     try:
-        doc_ref = db.collection("2nd_round_users").document(username)
-        doc = doc_ref.get()
-        if not doc.exists:
+        url = f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={FIREBASE_WEB_API_KEY}"
+        payload = {"email": email, "password": password, "returnSecureToken": True}
+        headers = {"Content-Type": "application/json"}
+        response = requests.post(url, headers=headers, data=json.dumps(payload))
+        data = response.json()
+
+        if "idToken" in data:
+            return True
+        else:
+            err = data.get("error", {}).get("message", "Login failed.")
+            st.error(f"❌ {err}")
             return False
-        user_data = doc.to_dict() or {}
-        stored_pw = user_data.get("password_hash") 
-        return stored_pw == password 
     except Exception as e:
         st.error(f"Auth error: {e}")
         return False
 
+
 def require_login() -> bool:
+    """Login UI for Streamlit using Firebase Auth (email + password)."""
     if "authed" not in st.session_state:
         st.session_state["authed"] = False
     if "username" not in st.session_state:
         st.session_state["username"] = None
 
     st.markdown("## 🔐 Login")
+
     with st.form("login_form", clear_on_submit=False):
-        username = st.text_input("Username")
+        username = st.text_input("Email")
         password = st.text_input("Password", type="password")
         submitted = st.form_submit_button("Sign in")
+
         if submitted:
             if validate_user(username.strip(), password.strip()):
                 st.session_state["authed"] = True
                 st.session_state["username"] = username
+                st.success("✅ Login successful!")
             else:
-                st.error("Invalid username or password.")
+                st.error("Invalid email or password.")
+
     return st.session_state["authed"]
+
 
 def logout_button():
     if st.session_state.get("authed"):
@@ -108,10 +132,12 @@ def walk_find_claim_blocks(node: Any) -> List[Any]:
                     found[k].append(v)
                 walk(v)
         elif isinstance(n, list):
-            for i in n: walk(i)
+            for i in n:
+                walk(i)
         elif isinstance(n, str):
             parsed = maybe_parse(n)
-            if parsed is not n: walk(parsed)
+            if parsed is not n:
+                walk(parsed)
     walk(node)
     return found["claims"]
 
@@ -129,7 +155,8 @@ def extract_title_text_pairs(claim_blocks: List[Any]) -> List[Dict[str, str]]:
     for block in claim_blocks:
         if isinstance(block, list):
             for c in block:
-                if not isinstance(c, dict): continue
+                if not isinstance(c, dict):
+                    continue
                 title, text = take_title_text(c)
                 key = f"{title}|{text}"
                 if title and text and key not in seen:
@@ -179,7 +206,8 @@ def extract_metadata_and_claims(url: str) -> Tuple[Dict[str, Any], List[Dict[str
     overview, total_subtopics = [], 0
     if isinstance(topics, list):
         for t in topics:
-            if not isinstance(t, dict): continue
+            if not isinstance(t, dict):
+                continue
             t_title = t.get("title")
             subs = t.get("subtopics", [])
             overview.append({"topic": t_title, "subtopic_count": len(subs) if isinstance(subs, list) else 0})
@@ -192,16 +220,19 @@ def extract_metadata_and_claims(url: str) -> Tuple[Dict[str, Any], List[Dict[str
     if isinstance(sources, list):
         for s in sources:
             if isinstance(s, str):
-                try: s = json.loads(s)
-                except: continue
+                try:
+                    s = json.loads(s)
+                except:
+                    continue
             if isinstance(s, dict):
                 person = s.get("interview") or s.get("name") or s.get("author")
-                if person: people.add(person)
+                if person:
+                    people.add(person)
                 data = s.get("data")
-                if isinstance(data, list): total_claims_est += len(data)
+                if isinstance(data, list):
+                    total_claims_est += len(data)
     metadata["total_people"] = len(people)
     metadata["total_claims"] = total_claims_est
-    #metadata["people_sample"] = list(people)[:5]
     claim_blocks = walk_find_claim_blocks(normalized)
     claims = extract_title_text_pairs(claim_blocks)
     metadata["claim_count_extracted"] = len(claims)
@@ -211,9 +242,10 @@ def extract_metadata_and_claims(url: str) -> Tuple[Dict[str, Any], List[Dict[str
 # FIRESTORE STORAGE
 # ====================================================
 def store_in_chunks_with_progress(collection_name: str, metadata: Dict[str, Any], claims: List[Dict[str, str]], db=None):
-    if db is None: raise ValueError("Firestore client required")
+    if db is None:
+        raise ValueError("Firestore client required")
     title = (metadata.get("title") or "untitled").strip()
-    MAX_TITLE_LENGTH = 100  # or 400
+    MAX_TITLE_LENGTH = 100
     safe_title = title.replace(" ", "_")[:MAX_TITLE_LENGTH] or "untitled"
     base_doc_id = f"{safe_title}__{hashlib.sha1(title.encode()).hexdigest()[:8]}"
     chunks, current_chunk, current_size = [], [], utf8_len({"metadata": metadata, "claims": []})
@@ -224,19 +256,21 @@ def store_in_chunks_with_progress(collection_name: str, metadata: Dict[str, Any]
             current_chunk, current_size = [], utf8_len({"claims": []})
         current_chunk.append(claim)
         current_size += claim_size
-    if current_chunk: chunks.append(current_chunk)
+    if current_chunk:
+        chunks.append(current_chunk)
 
     report, progress = [], st.progress(0, text="Writing to Firestore...")
     total = len(chunks)
     for idx, chunk in enumerate(chunks):
         doc_id = f"{base_doc_id}__part{idx+1}"
         payload = {"claims": chunk}
-        if idx == 0: payload["metadata"] = metadata
+        if idx == 0:
+            payload["metadata"] = metadata
         size_bytes = utf8_len(payload)
         space_left = FIRESTORE_DOC_HARD_LIMIT - size_bytes
         db.collection(collection_name).document(doc_id).set(payload)
         report.append({
-            "doc_id": doc_id, 
+            "doc_id": doc_id,
             "claims_in_chunk": len(chunk),
             "size_bytes": size_bytes,
             "space_left": space_left
@@ -251,7 +285,9 @@ def store_in_chunks_with_progress(collection_name: str, metadata: Dict[str, Any]
 # ====================================================
 st.set_page_config(page_title="Second-Round Ingest → Firestore", page_icon="🧩", layout="centered")
 
-if not require_login(): st.stop()
+if not require_login():
+    st.stop()
+
 st.title(f"🧩 Second-Round Ingest → Firestore (Welcome {st.session_state['username']})")
 logout_button()
 
@@ -262,8 +298,11 @@ st.markdown("### 📂 GCS File Selection")
 bucket_name = st.text_input("Bucket name", value=DEFAULT_BUCKET_NAME)
 blob_name = st.text_input("File name (e.g. ai_assembly_2023_t3c.json)", value="")
 expiration_seconds = st.number_input(
-    "Signed URL expiration time (in seconds)", 
-    min_value=60, max_value=604800, value=3600, step=60
+    "Signed URL expiration time (in seconds)",
+    min_value=60,
+    max_value=604800,
+    value=3600,
+    step=60,
 )
 
 signed_url = ""
@@ -277,7 +316,8 @@ if bucket_name and blob_name:
 
 preview_btn = st.button("🔍 Preview JSON")
 write_btn = st.button("📝 Write to Firestore")
-if "previews" not in st.session_state: st.session_state["previews"] = {}
+if "previews" not in st.session_state:
+    st.session_state["previews"] = {}
 
 if preview_btn and signed_url:
     try:
@@ -296,7 +336,8 @@ if write_btn:
         try:
             db = init_firebase()
             for url, p in st.session_state["previews"].items():
-                if not p.get("ok"): continue
+                if not p.get("ok"):
+                    continue
                 report = store_in_chunks_with_progress(collection_name.strip(), p["metadata"], p["claims"], db=db)
                 st.success(f"Stored {len(p['claims'])} claims into '{collection_name}'")
                 with st.expander("Firestore Write Details"):
