@@ -1,5 +1,6 @@
 import openai
 from typing import List
+from config.config import db, logger, client
 
 openai.api_key = "sk-YOUR-KEY-HERE"  # Replace with your key
 
@@ -15,7 +16,8 @@ def _summarize_user_messages(messages: List[str]) -> str:
     user_input = "Here are the user's messages:\n\n" + "\n".join(f"- {m}" for m in messages if m)
 
     try:
-        resp = openai.ChatCompletion.create(
+        
+        resp = client.chat.completions.create(
             model="gpt-4o",  # You can use gpt-4o-mini if needed
             messages=[
                 {"role": "system", "content": system_message},

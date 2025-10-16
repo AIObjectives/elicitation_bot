@@ -5,16 +5,16 @@ from fastapi import FastAPI, Form, Response
 import logging
 from uuid import uuid4
 
-# Initialize Firebase
+
 cred = credentials.Certificate('xxx.json')
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
-# Setup logging
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Example extra questions dict from listener mode
+
 extra_questions = {
     "ExtraQuestion1": {
         "enabled": False,
@@ -63,7 +63,7 @@ def initialize_event_collection(
     collection_ref = db.collection(f'AOI_{event_id}')
     info_doc_ref = collection_ref.document('info')
     
-    # Define the follow-up questions
+   
     follow_up_questions = [
         "Can you elaborate on what stood out to you the most about X?",
         "How did X make you feel, and why do you think that is?",
@@ -82,7 +82,7 @@ def initialize_event_collection(
         "If you had to summarize your overall impression of X in one sentence, what would it be?"
     ]
 
-    # Add a toggle for the follow-up questions
+   
     follow_up_toggle = {
         "enabled": True,  # Set to False to turn off follow-up questions
         "questions": follow_up_questions

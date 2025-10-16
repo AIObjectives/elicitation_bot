@@ -3,7 +3,7 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 from datetime import datetime, timezone
 
-# Initialize the Firebase app
+
 if not firebase_admin._apps:
     cred = credentials.Certificate('xxx')
     firebase_admin.initialize_app(cred)
@@ -11,7 +11,7 @@ if not firebase_admin._apps:
 db = firestore.client()
 
 def get_user_event_tracking_data():
-    # Fetch all documents from 'user_event_tracking' collection
+    
     user_event_tracking_ref = db.collection('user_event_tracking')
     docs = user_event_tracking_ref.stream()
 

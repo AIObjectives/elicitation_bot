@@ -4,11 +4,11 @@ from fastapi import FastAPI, Form, Response
 import logging
 from uuid import uuid4
 
-cred = credentials.Certificate('xxxx') # Path to your Firebase credentials file
+cred = credentials.Certificate('xxxx') 
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
-# Configure logging
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 

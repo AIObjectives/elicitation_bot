@@ -5,16 +5,16 @@ from fastapi import FastAPI, Form, Response
 import logging
 from uuid import uuid4
 
-# Initialize Firebase
+
 cred = credentials.Certificate('xxx')
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
-# Setup logging
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Example extra questions dict from listener mode
+
 extra_questions = {
     "ExtraQuestion1": {
         "enabled": False,
@@ -124,7 +124,7 @@ def initialize_event_collection(
     logger.info(f"Event '{event_name}' initialized with follow-up and extra questions.")
 
 
-# Define event details and survey questions
+
 if __name__ == "__main__":
     event_id = "xx"
     event_name = "xxx"
@@ -146,7 +146,7 @@ if __name__ == "__main__":
         "ai manifestos and their implications"
     ]
     languages = ["English", "French", "Swahili"]
-    #added
+
     language_guidance = "The bot should prioritize matching the user's language when detected, but default to English if unclear. Avoid switching languages mid-conversation."
 
     initial_message = (

@@ -6,15 +6,6 @@ It was designed to support large-scale deliberation datasets, while handling Fir
 
 ---
 
-## 🚀 Features
-
-- **Secure login** with username/password stored in Firestore.
-- **GCS integration**: generate signed URLs for JSON files stored in your GCS bucket.
-- **Dynamic expiration**: choose how long signed URLs remain valid (default: 1 hour, configurable up to 7 days).
-- **Preview mode**: inspect metadata and extracted claims from the JSON before ingestion.
-- **Firestore chunking**: automatically splits claims into multiple documents if payload size approaches Firestore’s 1MB limit.
-- **Progress reporting**: live status updates in the UI showing claims stored, bytes used, and space left in each document.
-- **Logout support**: simple session-based logout button.
 
 ---
 
@@ -23,8 +14,7 @@ It was designed to support large-scale deliberation datasets, while handling Fir
 The app integrates four main components:
 
 1. **Authentication Layer**
-   - Users log in with credentials stored in Firestore.
-   - Passwords can be stored as **SHA-256 hashes** (secure practice).
+   - Firebase Auth
 
 2. **Google Cloud Storage**
    - Uses service account credentials to generate **signed URLs**.
@@ -109,7 +99,7 @@ The app integrates four main components:
 
 ## 📊 Example Workflow
 
-1. **Login** with Firestore credentials.
+1. **Login** with Firebase Auth credentials.
 2. **Enter bucket + file name** in the UI.
 3. **Generate signed URL** (configurable expiration).
 4. **Preview JSON** metadata and extracted claims.

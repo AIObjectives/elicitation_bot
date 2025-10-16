@@ -3,33 +3,27 @@ import textwrap
 from typing import List, Dict, Any, Optional
 from openai import OpenAI
 
-# =========================
-# CONFIG (edit these)
-# =========================
-OPENAI_API_KEY = "xxx"  # <-- hard-code for fast local testing only
+
+OPENAI_API_KEY = "xxx"  
 MODEL = "gpt-4o-mini"
 TEMPERATURE = 0.35
 MAX_TOKENS = 220
 
-# Optional: small metadata blob that would normally come from your report doc
+
 DEFAULT_METADATA = {
     "title": "AI & Work Futures",
     "date": "2025-08-01",
     "source_count": 17,
 }
 
-# =========================
-# LLM CLIENT
-# =========================
+
 def get_client() -> OpenAI:
     if not OPENAI_API_KEY or OPENAI_API_KEY.startswith("sk-REPLACE"):
         raise RuntimeError("Please set OPENAI_API_KEY at the top of the file.")
     os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
     return OpenAI(api_key=OPENAI_API_KEY)
 
-# =========================
-# PROMPT COMPOSER (same logic as prod, minus Firestore)
-# =========================
+
 def build_second_round_message(
     user_msg: str,
     summary: str,

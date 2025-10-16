@@ -2,12 +2,12 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 import logging
 
-# 1) Initialize Firebase
+
 cred = credentials.Certificate('xxx.json')
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
-# Configure logging
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -41,7 +41,7 @@ def initialize_event_collection(event_id, event_name, event_location, event_back
             "order": 3
         },
         "ExtraQuestion4": {
-            "enabled": False,   # This one won't be asked
+            "enabled": False,   
             "text": "Any special requests for the organizers?",
             "order": 4
         }
@@ -80,7 +80,7 @@ def add_extra_question(event_id, question_key, text, enabled=True, order=1, func
     data = doc_snapshot.to_dict() or {}
     extra_questions = data.get('extra_questions', {})
 
-    # Build a new question dictionary
+   
     new_question = {
         "enabled": enabled,
         "text": text,
@@ -89,10 +89,10 @@ def add_extra_question(event_id, question_key, text, enabled=True, order=1, func
     if function_id:
         new_question["id"] = function_id
 
-    # Insert or update
+
     extra_questions[question_key] = new_question
 
-    # Update Firestore
+  
     info_doc_ref.update({
         "extra_questions": extra_questions
     })
