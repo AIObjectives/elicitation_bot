@@ -1,7 +1,3 @@
-
-
-
-
 import logging
 import json
 import os
@@ -9,14 +5,13 @@ import io
 import re
 from uuid import uuid4
 from datetime import datetime, timedelta
-
 from firebase_admin import credentials, firestore
-
-
 import requests
 from requests.auth import HTTPBasicAuth
 from pydub import AudioSegment
 from fastapi import Response
+from app.deliberation.second_round_agent import run_second_round_for_user
+
 
 from config.config import (
     db, logger, client, twilio_client,
@@ -36,6 +31,37 @@ from app.services.openai_service import (
     extract_gender_with_llm,
     extract_region_with_llm
 )
+
+def _norm(s: str) -> str:
+    """Collapse whitespace + lowercase to avoid trivial duplicates."""
+    return " ".join((s or "").split()).strip().lower()
+
+
+def is_second_round_enabled(event_id: str) -> bool:
+    """Return True iff info.second_round_claims_source.enabled is truthy."""
+    event_path = event_id if event_id.startswith("AOI_") else f"AOI_{event_id}"
+    info_ref = db.collection(event_path).document("info")
+    info_doc = info_ref.get()
+    if not info_doc.exists:
+        return False
+
+    info = info_doc.to_dict() or {}
+    src = info.get("second_round_claims_source") or {}
+    if isinstance(src, dict):
+        val = src.get("enabled")
+        if isinstance(val, bool):
+            return val
+        if isinstance(val, str):
+            return val.strip().lower() in {"true", "1", "yes", "on"}
+
+    legacy = info.get("second_deliberation_enabled")
+    if isinstance(legacy, bool):
+        return legacy
+    if isinstance(legacy, str):
+        return legacy.strip().lower() in {"true", "1", "yes", "on"}
+
+    return False
+
 
 
 async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
@@ -654,6 +680,45 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
 
     if not Body:
         return Response(status_code=400)
+
+# ----------------------------
+# 2ND-ROUND DELIBERATION PATH
+# ----------------------------
+    if current_event_id and is_second_round_enabled(current_event_id):
+        sr_coll = db.collection(f"AOI_{current_event_id}")
+        sr_doc_ref = sr_coll.document(normalized_phone)
+
+        sr_snap = sr_doc_ref.get()
+        if sr_snap.exists:
+            arr = (sr_snap.to_dict() or {}).get("second_round_interactions", []) or []
+            last_user_msg = None
+            for item in reversed(arr):
+                if "message" in item:
+                    last_user_msg = (item["message"] or "")
+                    break
+            if last_user_msg and _norm(last_user_msg) == _norm(Body):
+                logger.info("[2nd-round] Duplicate user message detected; skipping re-run.")
+                return Response(status_code=200)
+        else:
+            sr_doc_ref.set({}, merge=True)
+
+        sr_doc_ref.update({
+            "second_round_interactions": firestore.ArrayUnion([
+                {"message": Body, "ts": datetime.utcnow().isoformat()}
+            ])
+        })
+
+        sr_reply = run_second_round_for_user(current_event_id, normalized_phone, user_msg=Body)
+        if sr_reply:
+            send_message(From, sr_reply)
+            sr_doc_ref.update({
+                "second_round_interactions": firestore.ArrayUnion([
+                    {"response": sr_reply, "ts": datetime.utcnow().isoformat()}
+                ])
+            })
+            return Response(status_code=200)
+        else:
+            logger.warning("[2nd-round] Missing context or GPT error—falling back to normal flow.")
 
     # Store user message
     event_doc_ref = db.collection(f'AOI_{current_event_id}').document(normalized_phone)
