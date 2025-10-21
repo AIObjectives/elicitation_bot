@@ -5,6 +5,7 @@ import csv
 from io import StringIO
 import firebase_admin
 from firebase_admin import credentials, firestore
+import os, json
 
 def get_all_user_inputs(db, collection_name):
     """
@@ -84,7 +85,15 @@ def main():
     """
     # === 1. Initialize Firebase with your credentials ===
     # Replace with the path to your actual credentials JSON file
-    cred = credentials.Certificate('xxx.json')
+   
+
+    FIREBASE_CREDENTIALS_JSON = os.environ.get("FIREBASE_CREDENTIALS_JSON")
+
+    if not FIREBASE_CREDENTIALS_JSON:
+        raise RuntimeError("Missing FIREBASE_CREDENTIALS_JSON environment variable")
+
+    cred = credentials.Certificate(json.loads(FIREBASE_CREDENTIALS_JSON))
+
 
 
 

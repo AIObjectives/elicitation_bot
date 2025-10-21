@@ -2,10 +2,13 @@ from typing import Dict, Any, List, Optional, Tuple
 from config.config import db, logger, client
 from app.deliberation.summarizer import summarize_and_store
 from app.deliberation.find_perspectives import select_and_store_for_event
+from app.utils.validators import normalize_event_path
+
+
 
 # ---------- helpers ----------
 def _fetch_report_metadata(event_id: str) -> Dict[str, Any]:
-    path = f"AOI_{event_id}" if not event_id.startswith("AOI_") else event_id
+    path = normalize_event_path(event_id)
     info = db.collection(path).document("info").get()
     if not info.exists:
         return {}
@@ -117,10 +120,12 @@ def run_second_round_for_user(event_id: str, phone_number: str, user_msg: Option
             select_and_store_for_event(event_id, only_for=[phone_number])
             return _attempt(after_warm=True)
         return _build_reply(user_msg, summary, agreeable, opposing, meta, reason, turns, intro_done)
-
+    
     reply = _attempt()
     if reply is None:
+        logger.warning(f"[2nd-round] No reply generated for user {phone_number} in event {event_id}.")
         return None
+
 
     # mark intro finished after a successful turn
     path = f"AOI_{event_id}" if not event_id.startswith("AOI_") else event_id

@@ -1,8 +1,13 @@
 import firebase_admin
 from firebase_admin import credentials, firestore
+import os, json
 
-# Firebase Initialization - Assuming it's already done in your current setup
-cred = credentials.Certificate('xxx.json')
+FIREBASE_CREDENTIALS_JSON = os.environ.get("FIREBASE_CREDENTIALS_JSON")
+
+if not FIREBASE_CREDENTIALS_JSON:
+    raise RuntimeError("Missing FIREBASE_CREDENTIALS_JSON environment variable")
+
+cred = credentials.Certificate(json.loads(FIREBASE_CREDENTIALS_JSON))
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 

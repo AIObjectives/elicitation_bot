@@ -686,15 +686,24 @@ async def reply_followup(Body: str, From: str, MediaUrl0: str = None):
         return Response(status_code=400)
     
 
-
-# ----------------------------
-# 2ND-ROUND DELIBERATION PATH
-# ----------------------------
-# De-dupe exact same user message in 2nd round
+    # ----------------------------
+    # 2ND-ROUND DELIBERATION PATH
+    # ----------------------------
     if current_event_id and is_second_round_enabled(current_event_id):
         sr_coll = db.collection(f"AOI_{current_event_id}")
         sr_doc_ref = sr_coll.document(normalized_phone)
 
+        # Use a small transaction helper to ensure the doc exists (prevents race condition)
+        @firestore.transactional
+        def ensure_doc_exists(transaction, ref):
+            snap = ref.get(transaction=transaction)
+            if not snap.exists:
+                transaction.set(ref, {})
+
+        transaction = db.transaction()
+        ensure_doc_exists(transaction, sr_doc_ref)
+
+        # Fetch and check for duplicate user message
         sr_snap = sr_doc_ref.get()
         if sr_snap.exists:
             arr = (sr_snap.to_dict() or {}).get("second_round_interactions", []) or []
@@ -706,30 +715,30 @@ async def reply_followup(Body: str, From: str, MediaUrl0: str = None):
             if last_user_msg and _norm(last_user_msg) == _norm(Body):
                 logger.info("[2nd-round] Duplicate user message detected; skipping re-run.")
                 return Response(status_code=200)
-        else:
-            # Ensure the doc exists so update(ArrayUnion) won't fail
-            sr_doc_ref.set({}, merge=True)
 
-        # Append ONLY (do not initialize the array)
-        sr_doc_ref.update({
-            "second_round_interactions": firestore.ArrayUnion([
-                {"message": Body, "ts": datetime.utcnow().isoformat()}
-            ])
-        })
-
-        # Build/send the 2nd-round reply
+        # Run the second-round deliberation (external GPT call)
         sr_reply = run_second_round_for_user(current_event_id, normalized_phone, user_msg=Body)
+
+        # If GPT returns a reply, atomically record both message and response together
         if sr_reply:
             send_message(From, sr_reply)
             sr_doc_ref.update({
                 "second_round_interactions": firestore.ArrayUnion([
+                    {"message": Body, "ts": datetime.utcnow().isoformat()},
                     {"response": sr_reply, "ts": datetime.utcnow().isoformat()}
                 ])
             })
             return Response(status_code=200)
         else:
+            # If GPT fails, at least record the user message alone
+            sr_doc_ref.update({
+                "second_round_interactions": firestore.ArrayUnion([
+                    {"message": Body, "ts": datetime.utcnow().isoformat()}
+                ])
+            })
             logger.warning("[2nd-round] Missing context or GPT error—falling back to normal flow.")
     # ---- end 2nd-round branch; normal flow continues below ----
+
 
     # Store user message
     event_doc_ref = db.collection(f'AOI_{current_event_id}').document(normalized_phone)
