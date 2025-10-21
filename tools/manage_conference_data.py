@@ -2,10 +2,17 @@
 import firebase_admin
 from firebase_admin import credentials, firestore
 from datetime import datetime, timezone
+import os, json
 
 
 if not firebase_admin._apps:
-    cred = credentials.Certificate('xxx')
+
+    FIREBASE_CREDENTIALS_JSON = os.environ.get("FIREBASE_CREDENTIALS_JSON")
+
+    if not FIREBASE_CREDENTIALS_JSON:
+        raise RuntimeError("Missing FIREBASE_CREDENTIALS_JSON environment variable")
+
+    cred = credentials.Certificate(json.loads(FIREBASE_CREDENTIALS_JSON))
     firebase_admin.initialize_app(cred)
 
 db = firestore.client()

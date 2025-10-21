@@ -4,9 +4,15 @@ from firebase_admin import credentials, firestore
 from fastapi import FastAPI, Form, Response
 import logging
 from uuid import uuid4
+import os, json
 
+FIREBASE_CREDENTIALS_JSON = os.environ.get("FIREBASE_CREDENTIALS_JSON")
 
-cred = credentials.Certificate('xxx.json')
+if not FIREBASE_CREDENTIALS_JSON:
+    raise RuntimeError("Missing FIREBASE_CREDENTIALS_JSON environment variable")
+
+cred = credentials.Certificate(json.loads(FIREBASE_CREDENTIALS_JSON))
+
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 

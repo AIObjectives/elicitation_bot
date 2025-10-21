@@ -26,12 +26,12 @@ def _summarize_user_messages(messages: List[str]) -> str:
         return "⚠️ Error generating summary."
 
 def summarize_and_store(event_id: str, only_for: Optional[Iterable[str]] = None) -> int:
-    """Create 'summary' for users that don't have one yet. Safe/idempotent."""
     coll = db.collection(f"AOI_{event_id}")
     docs = coll.stream() if not only_for else [coll.document(p).get() for p in only_for]
+    batch = db.batch()
     updated = 0
 
-    for snap in docs:
+    for i, snap in enumerate(docs):
         if not snap.exists or snap.id == "info":
             continue
         data = snap.to_dict() or {}
@@ -45,8 +45,18 @@ def summarize_and_store(event_id: str, only_for: Optional[Iterable[str]] = None)
 
         logger.info(f"[summarizer] {snap.id}: {len(msgs)} msgs → summary")
         summary = _summarize_user_messages(msgs)
-        coll.document(snap.id).set({"summary": summary}, merge=True)
+        doc_ref = coll.document(snap.id)
+        batch.set(doc_ref, {"summary": summary}, merge=True)
         updated += 1
+
+        # Commit every 400–500 writes to stay under Firestore limit
+        if updated % 400 == 0:
+            batch.commit()
+            batch = db.batch()
+
+    # Commit any remaining writes
+    if updated % 400 != 0:
+        batch.commit()
 
     logger.info(f"[summarizer] updated={updated} event={event_id}")
     return updated
