@@ -13,6 +13,7 @@ if not FIREBASE_CREDENTIALS_JSON:
 
 cred = credentials.Certificate(json.loads(FIREBASE_CREDENTIALS_JSON))
 
+
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
@@ -69,7 +70,7 @@ def initialize_event_collection(
     collection_ref = db.collection(f'AOI_{event_id}')
     info_doc_ref = collection_ref.document('info')
     
-   
+    # Define the follow-up questions
     follow_up_questions = [
         "Can you elaborate on what stood out to you the most about X?",
         "How did X make you feel, and why do you think that is?",
@@ -88,7 +89,7 @@ def initialize_event_collection(
         "If you had to summarize your overall impression of X in one sentence, what would it be?"
     ]
 
-   
+    # Add a toggle for the follow-up questions
     follow_up_toggle = {
         "enabled": True,  # Set to False to turn off follow-up questions
         "questions": follow_up_questions
@@ -98,10 +99,11 @@ def initialize_event_collection(
     info_doc_ref.set({
         'event_initialized': True,
         'event_name': event_name,
+        "event_id": "xxx",
         'event_location': event_location,
         'event_background': event_background,
         'event_date': event_date,
-        'welcome_message': f"What could make you change your mind about who you would vote for?",
+        'welcome_message': f"What do you think of AI?",
         'initial_message': initial_message,
         'completion_message': completion_message,
         
@@ -115,23 +117,31 @@ def initialize_event_collection(
         'language_guidance': language_guidance,
         'follow_up_questions': follow_up_toggle,
         'extra_questions': extra_questions,  # Add extra questions block
-        'mode': 'followup'      # or "listener" / "survey"
+        'mode': 'followup',      # or "listener" / "survey"
+        'second_round_claims_source': {
+        'enabled': False,  # Change to True via Firestore UI to activate 2nd round
+        'collection': '2ndRoundDeliberationTests',
+        'document': 'xxx'
+    }
+        
+
+
     })
     
     logger.info(f"Event '{event_name}' initialized with follow-up and extra questions.")
 
 
-# Define event details and survey questions
+
 if __name__ == "__main__":
-    event_id = "MultiLanFollowupMode2025Demo"
-    event_name = "MultiLanFollow-up Mode2025 Demo"
-    main_question = "What could make you change your mind about who you would vote for?"
+    event_id = "xx"
+    event_name = "xxx"
+    main_question = "Share your thoughts on AI manifestos and their implications."
     event_location = "Global"
-    event_background = "A nationwide discussion on what could influence voters' decisions in upcoming elections."
+    event_background = "exploring perspectives on AI manifestos."
     event_date = "2025"
    
-    bot_topic = "Experiences and challenges of LBQ+ women in the workplace and community"
-    bot_aim = "Encourage users to reflect on factors that could influence their voting decisions."
+    bot_topic = "AI manifestos and their implications"
+    bot_aim = "to encourage users to share their perspectives manifestos on the future of AI"
     bot_principles = [
         "Avoid repeating user responses verbatim. Instead, acknowledge their input with concise and meaningful replies, such as 'Thank you for your input' or similar",
         "Respect privacy and confidentiality",
@@ -139,11 +149,11 @@ if __name__ == "__main__":
     ]
     bot_personality = "Empathetic, supportive, and respectful"
     bot_additional_prompts = [
-        "What are some unique challenges you face?",
-        "How can your workplace better support LBQ+ individuals?"
+        "AI manifestos and their implications",
+        "ai manifestos and their implications"
     ]
     languages = ["English", "French", "Swahili"]
-    #added
+
     language_guidance = "The bot should prioritize matching the user's language when detected, but default to English if unclear. Avoid switching languages mid-conversation."
 
     initial_message = (
