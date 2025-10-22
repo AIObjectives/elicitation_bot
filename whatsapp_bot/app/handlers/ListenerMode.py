@@ -36,15 +36,20 @@ from app.services.openai_service import (
     extract_gender_with_llm,
     extract_region_with_llm
 )
+from app.utils.blacklist_helpers import is_blocked_number  
+
 
 
 async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
-    
-
     logger.info(f"Received message from {From} with body '{Body}' and media URL {MediaUrl0}")
 
     # Normalize phone number
     normalized_phone = From.replace("+", "").replace("-", "").replace(" ", "")
+    
+    # Check if number is blacklisted
+    if is_blocked_number(normalized_phone):
+        logger.warning(f"[Blacklist] Ignoring message from blocked number: {normalized_phone}")
+        return Response(status_code=200)
 
     # Step 1: Retrieve or initialize user tracking document
     user_tracking_ref = db.collection('user_event_tracking').document(normalized_phone)
