@@ -26,11 +26,10 @@ def initialize_event_collection(event_id, event_name, event_location, event_back
     collection_ref = db.collection(f'AOI_{event_id}')
     info_doc_ref = collection_ref.document('info')
     
-    # Example extra questions dict
     extra_questions = {
         "ExtraQuestion1": {
             "enabled": False,
-            "id": "extract_name_with_llm",   # function ID if needed
+            "id": "extract_name_with_llm",   
             "text": "How would you like to be addressed during this session? (Please feel free to use your own name, or another name)",
             "order": 1
         },
@@ -45,7 +44,7 @@ def initialize_event_collection(event_id, event_name, event_location, event_back
             "order": 3
         },
         "ExtraQuestion4": {
-            "enabled": False,   # This one won't be asked
+            "enabled": False, 
             "text": "Any special requests for the organizers?",
             "order": 4
         }
@@ -133,10 +132,9 @@ def add_extra_question(event_id, question_key, text, enabled=True, order=1, func
     if function_id:
         new_question["id"] = function_id
 
-    # Insert or update
+    
     extra_questions[question_key] = new_question
 
-    # Update Firestore
     info_doc_ref.update({
         "extra_questions": extra_questions
     })

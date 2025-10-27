@@ -4,9 +4,6 @@ from app.deliberation.summarizer import summarize_and_store
 from app.deliberation.find_perspectives import select_and_store_for_event
 from app.utils.validators import normalize_event_path
 
-
-
-
 def _fetch_report_metadata(event_id: str) -> Dict[str, Any]:
     path = normalize_event_path(event_id)
     info = db.collection(path).document("info").get()
@@ -24,7 +21,8 @@ def _fetch_dynamic_prompt(event_id: str) -> Dict[str, str]:
     Fetches custom system and user prompt templates from Firestore if defined under AOI_event_id/info.
     Returns a dict with 'system_prompt' and 'user_prompt' keys; falls back to defaults if missing.
     """
-    path = f"AOI_{event_id}" if not event_id.startswith("AOI_") else event_id
+    
+    path = normalize_event_path(event_id)
     info = db.collection(path).document("info").get()
     if not info.exists:
         return {}
@@ -37,7 +35,7 @@ def _fetch_dynamic_prompt(event_id: str) -> Dict[str, str]:
 
 
 def _get_user_context(event_id: str, phone: str, history_k: int = 6):
-    path = f"AOI_{event_id}" if not event_id.startswith("AOI_") else event_id
+    path = normalize_event_path(event_id)
     snap = db.collection(path).document(phone).get()
     if not snap.exists:
         return None
@@ -101,7 +99,7 @@ def _build_reply(user_msg,event_id: str, summary, agreeable, opposing, metadata,
         "Respond now following the rules above..."
     )
 
-    # format the dynamic user prompt
+    
     user_prompt = dynamic_user_prompt_template.format(
         history_block=history_block,
         summary=summary,
@@ -144,11 +142,11 @@ def run_second_round_for_user(event_id: str, phone_number: str, user_msg: Option
         if not summary or (not agreeable and not opposing):
             if after_warm:
                 return None
-            # warm just this user
-            summarize_and_store(event_id, only_for=[phone_number])
-            select_and_store_for_event(event_id, only_for=[phone_number])
+            normalized_id = normalize_event_path(event_id)
+            summarize_and_store(normalized_id, only_for=[phone_number])
+            select_and_store_for_event(normalized_id, only_for=[phone_number])
             return _attempt(after_warm=True)
-        return _build_reply(user_msg, summary, agreeable, opposing, meta, reason, turns, intro_done)
+        return _build_reply(user_msg, event_id, summary, agreeable, opposing, meta, reason, turns, intro_done)
 
     reply = _attempt()
     if reply is None:
@@ -156,8 +154,7 @@ def run_second_round_for_user(event_id: str, phone_number: str, user_msg: Option
         return None
 
 
-    # mark intro finished after a successful turn
-    path = f"AOI_{event_id}" if not event_id.startswith("AOI_") else event_id
+    path = normalize_event_path(event_id)
     db.collection(path).document(phone_number).set({"second_round_intro_done": True}, merge=True)
     return reply
 

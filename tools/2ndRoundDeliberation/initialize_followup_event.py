@@ -175,7 +175,7 @@ if __name__ == "__main__":
         "ai manifestos and their implications"
     ]
     languages = ["English", "French", "Swahili"]
-    #added
+    
     language_guidance = "The bot should prioritize matching the user's language when detected, but default to English if unclear. Avoid switching languages mid-conversation."
 
     initial_message = (

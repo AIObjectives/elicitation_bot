@@ -1,5 +1,6 @@
 from typing import Iterable, Optional, List
 from config.config import db, logger, client
+from app.utils.validators import normalize_event_path
 
 def _summarize_user_messages(messages: List[str]) -> str:
     if not messages:
@@ -26,7 +27,8 @@ def _summarize_user_messages(messages: List[str]) -> str:
         return "⚠️ Error generating summary."
 
 def summarize_and_store(event_id: str, only_for: Optional[Iterable[str]] = None) -> int:
-    coll = db.collection(f"AOI_{event_id}")
+    coll = db.collection(normalize_event_path(event_id))
+
     docs = coll.stream() if not only_for else [coll.document(p).get() for p in only_for]
     batch = db.batch()
     updated = 0
@@ -54,7 +56,7 @@ def summarize_and_store(event_id: str, only_for: Optional[Iterable[str]] = None)
             batch.commit()
             batch = db.batch()
 
-    # Commit any remaining writes
+
     if updated % 400 != 0:
         batch.commit()
 

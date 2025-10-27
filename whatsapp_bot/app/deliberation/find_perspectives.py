@@ -1,8 +1,9 @@
 from typing import Iterable, Optional, List, Tuple
 from config.config import db, logger, client
+from app.utils.validators import normalize_event_path
 
 def _get_claim_source_reference(event_id: str) -> Tuple[str, str]:
-    path = f"AOI_{event_id}" if not event_id.startswith("AOI_") else event_id
+    path = normalize_event_path(event_id)
     info = db.collection(path).document("info").get()
     if not info.exists:
         raise RuntimeError(f"No 'info' in {path}")
@@ -69,8 +70,10 @@ def select_and_store_for_event(event_id: str, only_for: Optional[Iterable[str]] 
         logger.warning(f"[find_perspectives] empty claim bank {col}/{doc}")
         return 0
 
-    path = f"AOI_{event_id}" if not event_id.startswith("AOI_") else event_id
+    
+    path = normalize_event_path(event_id)
     coll = db.collection(path)
+
     docs = coll.stream() if not only_for else [coll.document(p).get() for p in only_for]
     updated = 0
 
