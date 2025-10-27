@@ -94,7 +94,7 @@ def initialize_event_collection(
         "questions": follow_up_questions
     }
 
-    # Set the main event info in the 'info' document
+    
     info_doc_ref.set({
         'event_initialized': True,
         'event_name': event_name,
@@ -114,14 +114,14 @@ def initialize_event_collection(
         'languages': languages,
         'language_guidance': language_guidance,
         'follow_up_questions': follow_up_toggle,
-        'extra_questions': extra_questions,  # Add extra questions block
+        'extra_questions': extra_questions,  
         'mode': 'followup'      # or "listener" / "survey"
     })
     
     logger.info(f"Event '{event_name}' initialized with follow-up and extra questions.")
 
 
-# Define event details and survey questions
+
 if __name__ == "__main__":
     event_id = "MultiLanFollowupMode2025Demo"
     event_name = "MultiLanFollow-up Mode2025 Demo"
@@ -131,7 +131,7 @@ if __name__ == "__main__":
     event_date = "2025"
    
     bot_topic = "Experiences and challenges of LBQ+ women in the workplace and community"
-    bot_aim = "Encourage users to reflect on factors that could influence their voting decisions."
+    bot_aim = "Encourge users to reflect on factors that could influence their voting decisions."
     bot_principles = [
         "Avoid repeating user responses verbatim. Instead, acknowledge their input with concise and meaningful replies, such as 'Thank you for your input' or similar",
         "Respect privacy and confidentiality",
@@ -143,7 +143,7 @@ if __name__ == "__main__":
         "How can your workplace better support LBQ+ individuals?"
     ]
     languages = ["English", "French", "Swahili"]
-    #added
+    
     language_guidance = "The bot should prioritize matching the user's language when detected, but default to English if unclear. Avoid switching languages mid-conversation."
 
     initial_message = (

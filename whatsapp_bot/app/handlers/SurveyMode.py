@@ -31,6 +31,7 @@ from app.services.openai_service import (
     extract_region_with_llm
 )
 from app.utils.survey_helpers import initialize_user_document
+from app.utils.validators import normalize_event_path
 
 
 async def reply_survey(Body: str, From: str, MediaUrl0: str = None):
@@ -84,7 +85,7 @@ async def reply_survey(Body: str, From: str, MediaUrl0: str = None):
 
     # Validate current event
     if current_event_id:
-        event_info_ref = db.collection(f'AOI_{current_event_id}').document('info')
+        event_info_ref = db.collection(normalize_event_path(current_event_id)).document('info')
         event_info_doc = event_info_ref.get()
         if not event_info_doc.exists:
             user_events = [e for e in user_events if e['event_id'] != current_event_id]
@@ -201,7 +202,7 @@ async def reply_survey(Body: str, From: str, MediaUrl0: str = None):
                 'awaiting_extra_questions': False,
                 'current_extra_question_index': 0
             })
-            info_doc = db.collection(f'AOI_{current_event_id}').document('info').get()
+            info_doc = db.collection(normalize_event_path(current_event_id)).document('info').get()
             init_msg = "Thank you for agreeing to participate..."
             if info_doc.exists:
                 init_msg = info_doc.to_dict().get('initial_message', init_msg)
@@ -245,7 +246,7 @@ async def reply_survey(Body: str, From: str, MediaUrl0: str = None):
                 'awaiting_extra_questions':False,
                 'current_extra_question_index':0
             })
-            info_doc = db.collection(f'AOI_{current_event_id}').document('info').get()
+            info_doc = db.collection(normalize_event_path(current_event_id)).document('info').get()
             init_msg = "Thank you for agreeing to participate..."
             if info_doc.exists:
                 init_msg = info_doc.to_dict().get('initial_message', init_msg)
@@ -258,7 +259,7 @@ async def reply_survey(Body: str, From: str, MediaUrl0: str = None):
                 first = enabled[0]
                 send_message(From, f"{init_msg}\n\n{extra[first]['text']}")
             else:
-                part = db.collection(f'AOI_{current_event_id}').document(normalized_phone).get()
+                part = db.collection(normalize_event_path(current_event_id)).document(normalized_phone).get()
                 name = part.to_dict().get('name') if part.exists else None
                 send_message(From, create_welcome_message(current_event_id, name))
             return Response(status_code=200)
@@ -281,7 +282,7 @@ async def reply_survey(Body: str, From: str, MediaUrl0: str = None):
                     return Response(status_code=500, content=str(e))
             else:
                 return Response(status_code=400, content="Unsupported media type.")
-        info_doc = db.collection(f'AOI_{current_event_id}').document('info').get()
+        info_doc = db.collection(normalize_event_path(current_event_id)).document('info').get()
         if not info_doc.exists:
             user_tracking_ref.update({'awaiting_extra_questions':False})
             send_message(From, "No event info found. Continue with survey.")
@@ -290,7 +291,7 @@ async def reply_survey(Body: str, From: str, MediaUrl0: str = None):
         items = [(k,v) for k,v in extra.items() if v.get('enabled')]
         items.sort(key=lambda x:x[1].get('order',9999))
         enabled = [i[0] for i in items]
-        ev_doc_ref = db.collection(f'AOI_{current_event_id}').document(normalized_phone)
+        ev_doc_ref = db.collection(normalize_event_path(current_event_id)).document(normalized_phone)
         if current_extra_question_index < len(enabled):
             key = enabled[current_extra_question_index]
             qinfo = extra[key]
@@ -313,7 +314,7 @@ async def reply_survey(Body: str, From: str, MediaUrl0: str = None):
                 send_message(From, extra[nxt]['text'])
             else:
                 user_tracking_ref.update({'awaiting_extra_questions':False})
-                part = db.collection(f'AOI_{current_event_id}').document(normalized_phone).get().to_dict()
+                part = db.collection(normalize_event_path(current_event_id)).document(normalized_phone).get().to_dict()
                 send_message(From, create_welcome_message(current_event_id, part.get('name')))
         return Response(status_code=200)
 
@@ -338,9 +339,9 @@ async def reply_survey(Body: str, From: str, MediaUrl0: str = None):
                 'awaiting_extra_questions':False,
                 'current_extra_question_index':0
             })
-            ev_ref = db.collection(f'AOI_{current_event_id}').document(normalized_phone)
+            ev_ref = db.collection(normalize_event_path(current_event_id)).document(normalized_phone)
             ev_ref.set({'event_id':current_event_id}, merge=True)
-            info_doc = db.collection(f'AOI_{current_event_id}').document('info').get()
+            info_doc = db.collection(normalize_event_path(current_event_id)).document('info').get()
             init_msg = "Thank you for agreeing to participate..."
             if info_doc.exists:
                 init_msg = info_doc.to_dict().get('initial_message', init_msg)
@@ -364,7 +365,7 @@ async def reply_survey(Body: str, From: str, MediaUrl0: str = None):
     if Body.lower().startswith("change name "):
         new_name = Body[12:].strip()
         if new_name:
-            db.collection(f'AOI_{current_event_id}').document(normalized_phone).update({'name':new_name})
+            db.collection(normalize_event_path(current_event_id)).document(normalized_phone).update({'name':new_name})
             send_message(From, f"Your name has been updated to {new_name}. Please continue.")
         else:
             send_message(From, "Error updating name. Please try again.")
@@ -387,11 +388,11 @@ async def reply_survey(Body: str, From: str, MediaUrl0: str = None):
     # Step 9: Handle survey finalization
     if Body.strip().lower() in ['finalize','finish']:
         send_message(From, "Survey ended. Thank you for participating!")
-        db.collection(f'AOI_{current_event_id}').document(normalized_phone).update({'survey_complete':True})
+        db.collection(normalize_event_path(current_event_id)).document(normalized_phone).update({'survey_complete':True}    )
         return Response(status_code=200)
 
     # Step 10: Survey question loop
-    ev_ref = db.collection(f"AOI_{current_event_id}").document(normalized_phone)
+    ev_ref = db.collection(normalize_event_path(current_event_id)).document(normalized_phone)
     ev_doc = ev_ref.get().to_dict()
     questions_asked = ev_doc.get('questions_asked', {})
     responses = ev_doc.get('responses', {})
@@ -405,7 +406,7 @@ async def reply_survey(Body: str, From: str, MediaUrl0: str = None):
             'interactions': firestore.ArrayUnion([{'message': Body}])
         })
 
-    info_ref = db.collection(f"AOI_{current_event_id}").document("info")
+    info_ref = db.collection(normalize_event_path(current_event_id)).document("info")
     info_doc = info_ref.get()
     questions = info_doc.to_dict().get("questions", []) if info_doc.exists else []
 
