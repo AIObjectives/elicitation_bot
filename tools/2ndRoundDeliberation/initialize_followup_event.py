@@ -1,4 +1,3 @@
-
 import firebase_admin
 from firebase_admin import credentials, firestore
 from fastapi import FastAPI, Form, Response
@@ -13,14 +12,11 @@ if not FIREBASE_CREDENTIALS_JSON:
 
 cred = credentials.Certificate(json.loads(FIREBASE_CREDENTIALS_JSON))
 
-
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
 
 extra_questions = {
     "ExtraQuestion1": {
@@ -95,11 +91,10 @@ def initialize_event_collection(
         "questions": follow_up_questions
     }
 
-    # Set the main event info in the 'info' document
     info_doc_ref.set({
         'event_initialized': True,
         'event_name': event_name,
-        "event_id": "xxx",
+        "event_id": "2ndRoundDynamicTest1",
         'event_location': event_location,
         'event_background': event_background,
         'event_date': event_date,
@@ -118,10 +113,37 @@ def initialize_event_collection(
         'follow_up_questions': follow_up_toggle,
         'extra_questions': extra_questions,  # Add extra questions block
         'mode': 'followup',      # or "listener" / "survey"
+
+        'second_round_prompts': {
+            'system_prompt': (
+                "You are a concise, context-aware *second-round deliberation* assistant.\n"
+                "Goals: keep flow natural, avoid repetition, and deepen the user's thinking with concrete contrasts.\n"
+                "Hard rules:\n"
+                "- NEVER re-introduce the whole setup after the intro.\n"
+                "- Keep replies short: 1–4 crisp sentences, <= ~400 characters total.\n"
+                "- Answer the user's exact question first; then, if helpful, add ONE brief nudge.\n"
+                "- Do not ask generic questions like 'What aspect...?'—be specific and grounded.\n"
+                "- Only restate claims if the user asks for them.\n"
+            ),
+            'user_prompt': (
+                "{history_block}"
+                "User Summary: {summary}\n"
+                "Report Metadata (context only): {metadata}\n"
+                "Agreeable (grounding): {agree_block}\n"
+                "Opposing (grounding): {oppose_block}"
+                "{reason_line}\n\n"
+                "Current user message: {user_msg}\n\n"
+                "Respond now following the rules above. If the user asks 'what are we doing', reply with ONE sentence and pivot to a pointed follow-up.\n"
+                "If the user asks whether you can access others' reports, answer briefly: you have curated claims (not direct personal data), then offer a one-line, targeted next step.\n"
+                "When relevant, introduce another participant’s claim naturally, e.g., 'Here’s something that aligns with your view—do you agree?' or 'Here’s an opposing view—how would you respond?'\n"
+     
+            )
+        },
+
         'second_round_claims_source': {
         'enabled': False,  # Change to True via Firestore UI to activate 2nd round
         'collection': '2ndRoundDeliberationTests',
-        'document': 'xxx'
+        'document': 'AI_Manifestos__c4340250__part1'
     }
         
 
@@ -131,9 +153,9 @@ def initialize_event_collection(
     logger.info(f"Event '{event_name}' initialized with follow-up and extra questions.")
 
 
-
+# Define event details and survey questions
 if __name__ == "__main__":
-    event_id = "xx"
+    event_id = "xxx"
     event_name = "xxx"
     main_question = "Share your thoughts on AI manifestos and their implications."
     event_location = "Global"
@@ -141,7 +163,7 @@ if __name__ == "__main__":
     event_date = "2025"
    
     bot_topic = "AI manifestos and their implications"
-    bot_aim = "to encourage users to share their perspectives manifestos on the future of AI"
+    bot_aim = "to encourge users to share their perspectives manifestos on the future of AI"
     bot_principles = [
         "Avoid repeating user responses verbatim. Instead, acknowledge their input with concise and meaningful replies, such as 'Thank you for your input' or similar",
         "Respect privacy and confidentiality",
@@ -153,7 +175,7 @@ if __name__ == "__main__":
         "ai manifestos and their implications"
     ]
     languages = ["English", "French", "Swahili"]
-
+    
     language_guidance = "The bot should prioritize matching the user's language when detected, but default to English if unclear. Avoid switching languages mid-conversation."
 
     initial_message = (

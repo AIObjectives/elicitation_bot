@@ -1,7 +1,3 @@
-
-
-
-
 import logging
 import json
 import os
@@ -9,14 +5,13 @@ import io
 import re
 from uuid import uuid4
 from datetime import datetime, timedelta
-
 from firebase_admin import credentials, firestore
-
-
 import requests
 from requests.auth import HTTPBasicAuth
 from pydub import AudioSegment
 from fastapi import Response
+from app.deliberation.second_round_agent import run_second_round_for_user
+
 
 from config.config import (
     db, logger, client, twilio_client,
@@ -37,6 +32,37 @@ from app.services.openai_service import (
     extract_region_with_llm
 )
 from app.utils.blacklist_helpers import is_blocked_number  
+
+
+from app.utils.validators import _norm
+from app.utils.validators import normalize_event_path
+
+
+
+def is_second_round_enabled(event_id: str) -> bool:
+    """Return True iff info.second_round_claims_source.enabled is truthy."""
+    event_path = normalize_event_path(event_id)
+    info_ref = db.collection(event_path).document("info")
+    info_doc = info_ref.get()
+    if not info_doc.exists:
+        return False
+
+    info = info_doc.to_dict() or {}
+    src = info.get("second_round_claims_source") or {}
+    if isinstance(src, dict):
+        val = src.get("enabled")
+        if isinstance(val, bool):
+            return val
+        if isinstance(val, str):
+            return val.strip().lower() in {"true", "1", "yes", "on"}
+
+    legacy = info.get("second_deliberation_enabled")
+    if isinstance(legacy, bool):
+        return legacy
+    if isinstance(legacy, str):
+        return legacy.strip().lower() in {"true", "1", "yes", "on"}
+
+    return False
 
 
 
@@ -99,7 +125,7 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
 
     # Validate current event
     if current_event_id:
-        event_info_ref = db.collection(f'AOI_{current_event_id}').document('info')
+        event_info_ref = db.collection(normalize_event_path(current_event_id)).document('info')
         event_info_doc = event_info_ref.get()
         if not event_info_doc.exists:
             # The event no longer exists
@@ -238,7 +264,7 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
             })
 
             # Initialize participant doc if necessary
-            event_doc_ref = db.collection(f'AOI_{current_event_id}').document(normalized_phone)
+            event_doc_ref = db.collection(normalize_event_path(current_event_id)).document(normalized_phone)
             event_doc = event_doc_ref.get()
             if not event_doc.exists:
                 event_doc_ref.set({
@@ -248,7 +274,7 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
                 })
             
             # Send the new event's initial message (if exists)
-            event_details_ref = db.collection(f'AOI_{current_event_id}').document('info')
+            event_details_ref = db.collection(normalize_event_path(current_event_id)).document('info')
             event_details_doc = event_details_ref.get()
             initial_message = "Thank you for agreeing to participate..."
             if event_details_doc.exists:
@@ -321,10 +347,12 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
                 'current_extra_question_index': 0
             })
 
-            event_doc_ref = db.collection(f'AOI_{event_id}').document(normalized_phone)
+            
+            event_doc_ref = db.collection(normalize_event_path(event_id)).document(normalized_phone)
             event_doc_ref.set({'name': None, 'interactions': [], 'event_id': event_id})
 
-            event_info_ref = db.collection(f'AOI_{current_event_id}').document('info')
+            
+            event_info_ref = db.collection(normalize_event_path(current_event_id)).document('info')
             event_info_doc = event_info_ref.get()
             default_initial_message = "Thank you for agreeing to participate..."
             if event_info_doc.exists:
@@ -363,7 +391,8 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
                     # Previously: send_message(From, "You can now start the conversation.")
                     
                     # 1) fetch the participant's updated name from the event doc
-                    participant_doc = db.collection(f'AOI_{current_event_id}').document(normalized_phone).get()
+                    
+                    participant_doc = db.collection(normalize_event_path(current_event_id)).document(normalized_phone).get()
                     participant_data = participant_doc.to_dict() if participant_doc.exists else {}
                     participant_name = participant_data.get('name', None)
 
@@ -378,7 +407,8 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
         # Previously: send_message(From, "You can now start the conversation.")
         
         # 1) fetch the participant's updated name from the event doc
-                    participant_doc = db.collection(f'AOI_{current_event_id}').document(normalized_phone).get()
+            
+                    participant_doc = db.collection(normalize_event_path(current_event_id)).document(normalized_phone).get()
                     participant_data = participant_doc.to_dict() if participant_doc.exists else {}
                     participant_name = participant_data.get('name', None)
 
@@ -415,7 +445,7 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
                 return Response(status_code=400, content="Unsupported media type.")
 
         # Load the event details and the question
-        event_details_ref = db.collection(f'AOI_{current_event_id}').document('info')
+        event_details_ref = db.collection(normalize_event_path(current_event_id)).document('info')
         event_details_doc = event_details_ref.get()
         if not event_details_doc.exists:
             # If no info doc, just stop
@@ -432,7 +462,7 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
         enabled_questions = [item[0] for item in question_items]
 
         # Get participant doc
-        event_doc_ref = db.collection(f'AOI_{current_event_id}').document(normalized_phone)
+        event_doc_ref = db.collection(normalize_event_path(current_event_id)).document(normalized_phone)
         event_doc = event_doc_ref.get()
         participant_data = event_doc.to_dict() if event_doc.exists else {}
 
@@ -515,10 +545,11 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
                 'current_extra_question_index': 0
             })
 
-            event_doc_ref = db.collection(f'AOI_{event_id}').document(normalized_phone)
+            event_doc_ref = db.collection(normalize_event_path(event_id)).document(normalized_phone)
             event_doc_ref.set({'name': None, 'interactions': [], 'event_id': event_id})
 
-            event_info_ref = db.collection(f'AOI_{current_event_id}').document('info')
+           
+            event_info_ref = db.collection(normalize_event_path(current_event_id)).document('info')
             event_info_doc = event_info_ref.get()
             default_initial_message = "Thank you for agreeing to participate..."
             if event_info_doc.exists:
@@ -554,7 +585,8 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
                     # Previously: send_message(From, "You can now start the conversation.")
                     
                     # 1) fetch the participant's updated name from the event doc
-                    participant_doc = db.collection(f'AOI_{current_event_id}').document(normalized_phone).get()
+            
+                    participant_data = db.collection(normalize_event_path(current_event_id)).document(normalized_phone).get()
                     participant_data = participant_doc.to_dict() if participant_doc.exists else {}
                     participant_name = participant_data.get('name', None)
 
@@ -572,7 +604,7 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
         # Previously: send_message(From, "You can now start the conversation.")
         
                 # 1) fetch the participant's updated name from the event doc
-                participant_doc = db.collection(f'AOI_{current_event_id}').document(normalized_phone).get()
+                participant_doc = db.collection(normalize_event_path(current_event_id)).document(normalized_phone).get()
                 participant_data = participant_doc.to_dict() if participant_doc.exists else {}
                 participant_name = participant_data.get('name', None)
 
@@ -593,7 +625,7 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
     if Body.lower().startswith("change name "):
         new_name = Body[12:].strip()
         if new_name:
-            event_doc_ref = db.collection(f'AOI_{current_event_id}').document(normalized_phone)
+            event_doc_ref = db.collection(normalize_event_path(current_event_id)).document(normalized_phone)
             event_doc_ref.update({'name': new_name})
             send_message(From, f"Your name has been updated to {new_name}. Please continue.")
         else:
@@ -618,7 +650,7 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
     # Step 9: Handle user finishing or finalizing
     if Body.strip().lower() in ['finalize', 'finish']:
         default_completion_message = "Thank you. You have completed this survey!"
-        event_info_ref = db.collection(f'AOI_{current_event_id}').document('info')
+        event_info_ref = db.collection(normalize_event_path(current_event_id)).document('info')
         event_info_doc = event_info_ref.get()
         if event_info_doc.exists:
             event_info = event_info_doc.to_dict()
@@ -630,7 +662,7 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
         return Response(status_code=200)
 
     # Step 10: Otherwise, normal conversation with the LLM
-    event_details_ref = db.collection(f'AOI_{current_event_id}').document('info')
+    event_details_ref = db.collection(normalize_event_path(current_event_id)).document('info')
     event_details_doc = event_details_ref.get()
     welcome_message = "Welcome! You can now start sending text and audio messages."
     if event_details_doc.exists:
@@ -660,8 +692,55 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
     if not Body:
         return Response(status_code=400)
 
+# ----------------------------
+# 2ND-ROUND DELIBERATION PATH
+# ----------------------------
+    if current_event_id and is_second_round_enabled(current_event_id):
+        sr_coll = db.collection(normalize_event_path(current_event_id))
+        sr_doc_ref = sr_coll.document(normalized_phone)
+
+        @firestore.transactional
+        def process_second_round(transaction, ref, user_msg, sr_reply=None):
+            snap = ref.get(transaction=transaction)
+            data = snap.to_dict() if snap.exists else {"second_round_interactions": []}
+            interactions = data.get("second_round_interactions", [])
+            last_user_msg = None
+            for item in reversed(interactions):
+                if "message" in item:
+                    last_user_msg = item["message"]
+                    break
+
+            if last_user_msg and _norm(last_user_msg) == _norm(user_msg):
+                logger.info("[2nd-round] Duplicate user message detected; skipping re-run.")
+                return False  
+
+            
+            now_iso = datetime.utcnow().isoformat()
+            interactions.append({"message": user_msg, "ts": now_iso})
+            if sr_reply:
+                interactions.append({"response": sr_reply, "ts": now_iso})
+
+            transaction.set(ref, {"second_round_interactions": interactions}, merge=True)
+            return True
+
+        sr_reply = run_second_round_for_user(current_event_id, normalized_phone, user_msg=Body)
+
+        transaction = db.transaction()
+        success = process_second_round(transaction, sr_doc_ref, Body, sr_reply)
+
+        if not success:
+            return Response(status_code=200)
+
+        if sr_reply:
+            send_message(From, sr_reply)
+        else:
+            logger.warning("[2nd-round] Missing context or GPT error—falling back to normal flow.")
+
+        return Response(status_code=200)
+    # ---- end 2nd-round branch; normal flow continues below ----
+
     # Store user message
-    event_doc_ref = db.collection(f'AOI_{current_event_id}').document(normalized_phone)
+    event_doc_ref = db.collection(normalize_event_path(current_event_id)).document(normalized_phone)
     event_doc = event_doc_ref.get()
     if not event_doc.exists:
         event_doc_ref.set({'interactions': [], 'name': None, 'limit_reached_notified': False})

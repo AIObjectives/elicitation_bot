@@ -4,9 +4,6 @@ from app.deliberation.summarizer import summarize_and_store
 from app.deliberation.find_perspectives import select_and_store_for_event
 from app.utils.validators import normalize_event_path
 
-
-
-# ---------- helpers ----------
 def _fetch_report_metadata(event_id: str) -> Dict[str, Any]:
     path = normalize_event_path(event_id)
     info = db.collection(path).document("info").get()
@@ -19,8 +16,26 @@ def _fetch_report_metadata(event_id: str) -> Dict[str, Any]:
     rep = db.collection(col).document(doc).get()
     return (rep.to_dict() or {}).get("metadata", {}) if rep.exists else {}
 
+def _fetch_dynamic_prompt(event_id: str) -> Dict[str, str]:
+    """
+    Fetches custom system and user prompt templates from Firestore if defined under AOI_event_id/info.
+    Returns a dict with 'system_prompt' and 'user_prompt' keys; falls back to defaults if missing.
+    """
+    
+    path = normalize_event_path(event_id)
+    info = db.collection(path).document("info").get()
+    if not info.exists:
+        return {}
+    d = info.to_dict() or {}
+    prompts = d.get("second_round_prompts", {}) or {}
+    return {
+        "system_prompt": prompts.get("system_prompt", ""),
+        "user_prompt": prompts.get("user_prompt", "")
+    }
+
+
 def _get_user_context(event_id: str, phone: str, history_k: int = 6):
-    path = f"AOI_{event_id}" if not event_id.startswith("AOI_") else event_id
+    path = normalize_event_path(event_id)
     snap = db.collection(path).document(phone).get()
     if not snap.exists:
         return None
@@ -37,7 +52,7 @@ def _get_user_context(event_id: str, phone: str, history_k: int = 6):
         elif "response" in it: turns.append({"role": "assistant", "text": str(it["response"])})
     return summary, agreeable, opposing, reason, turns[-history_k:], intro_done
 
-def _build_reply(user_msg, summary, agreeable, opposing, metadata, reason, recent_turns, intro_done) -> Optional[str]:
+def _build_reply(user_msg,event_id: str, summary, agreeable, opposing, metadata, reason, recent_turns, intro_done) -> Optional[str]:
     history_block = ""
     if recent_turns:
         parts = []
@@ -59,7 +74,10 @@ def _build_reply(user_msg, summary, agreeable, opposing, metadata, reason, recen
 
     reason_line = f"\nClaim selection note: {reason}" if (reason and not intro_done) else ""
 
-    system_prompt = (
+    
+    prompt_data = _fetch_dynamic_prompt(event_id)
+
+    dynamic_system_prompt = prompt_data.get("system_prompt") or (
         "You are a concise, context-aware *second-round deliberation* assistant.\n"
         "Goals: keep flow natural, avoid repetition, and deepen the user's thinking with concrete contrasts.\n"
         "Hard rules:\n"
@@ -70,18 +88,28 @@ def _build_reply(user_msg, summary, agreeable, opposing, metadata, reason, recen
         "- Only restate claims if the user asks for them.\n"
     )
 
-    user_prompt = (
-        f"{history_block}"
-        f"User Summary: {summary}\n"
-        f"Report Metadata (context only): {metadata}\n"
-        f"Agreeable (grounding): {agree_block}\n"
-        f"Opposing (grounding): {oppose_block}"
-        f"{reason_line}\n\n"
-        f"Current user message: {user_msg}\n\n"
-        "Respond now following the rules above. If the user asks 'what are we doing', reply with ONE sentence and pivot to a pointed follow-up.\n"
-        "If the user asks whether you can access others' reports, answer briefly: you have curated claims (not direct personal data), then offer a one-line, targeted next step.\n"
-        "When relevant, introduce another participant’s claim naturally, e.g., 'Here’s something that aligns with your view—do you agree?' or 'Here’s an opposing view—how would you respond?'\n"
+    dynamic_user_prompt_template = prompt_data.get("user_prompt") or (
+        "{history_block}"
+        "User Summary: {summary}\n"
+        "Report Metadata (context only): {metadata}\n"
+        "Agreeable (grounding): {agree_block}\n"
+        "Opposing (grounding): {oppose_block}"
+        "{reason_line}\n\n"
+        "Current user message: {user_msg}\n\n"
+        "Respond now following the rules above..."
     )
+
+    
+    user_prompt = dynamic_user_prompt_template.format(
+        history_block=history_block,
+        summary=summary,
+        metadata=metadata,
+        agree_block=agree_block,
+        oppose_block=oppose_block,
+        reason_line=reason_line,
+        user_msg=user_msg
+    )
+    system_prompt = dynamic_system_prompt
 
     try:
         resp = client.chat.completions.create(
@@ -98,7 +126,6 @@ def _build_reply(user_msg, summary, agreeable, opposing, metadata, reason, recen
         logger.error(f"[2nd-round] GPT error: {e}")
         return None
 
-# ---------- public entry ----------
 def run_second_round_for_user(event_id: str, phone_number: str, user_msg: Optional[str] = "") -> Optional[str]:
     """
     If the user lacks summary or claim selections, this will:
@@ -115,19 +142,19 @@ def run_second_round_for_user(event_id: str, phone_number: str, user_msg: Option
         if not summary or (not agreeable and not opposing):
             if after_warm:
                 return None
-            # warm just this user
-            summarize_and_store(event_id, only_for=[phone_number])
-            select_and_store_for_event(event_id, only_for=[phone_number])
+            normalized_id = normalize_event_path(event_id)
+            summarize_and_store(normalized_id, only_for=[phone_number])
+            select_and_store_for_event(normalized_id, only_for=[phone_number])
             return _attempt(after_warm=True)
-        return _build_reply(user_msg, summary, agreeable, opposing, meta, reason, turns, intro_done)
-    
+        return _build_reply(user_msg, event_id, summary, agreeable, opposing, meta, reason, turns, intro_done)
+
     reply = _attempt()
     if reply is None:
         logger.warning(f"[2nd-round] No reply generated for user {phone_number} in event {event_id}.")
         return None
 
 
-    # mark intro finished after a successful turn
-    path = f"AOI_{event_id}" if not event_id.startswith("AOI_") else event_id
+    path = normalize_event_path(event_id)
     db.collection(path).document(phone_number).set({"second_round_intro_done": True}, merge=True)
     return reply
+
