@@ -59,7 +59,9 @@ def initialize_event_collection(
         'questions': formatted_questions,
         'completion_message': completion_message,
         'extra_questions': extra_questions,
-        'mode': 'survey'      # or "followup" / "survey"
+        'mode': 'survey',      # or "followup" / "survey"
+        'interaction_limit': 450  # Default; can be customized per event later
+
     })
 
     logger.info(f"Event '{event_name}' initialized with {len(formatted_questions)} survey questions and {len(extra_questions)} extra questions.")

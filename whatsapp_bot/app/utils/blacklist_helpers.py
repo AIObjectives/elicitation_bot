@@ -1,5 +1,6 @@
 import time
 from config.config import db, logger
+from app.utils.validators import normalize_event_path
 
 # In-memory cache for phone lookups
 _cache = {}
@@ -60,3 +61,45 @@ def is_blocked_number(phone: str) -> bool:
     except Exception as e:
         logger.error(f"[Blacklist] Error checking {phone}: {e}")
         return False
+
+# Cache for limits (keyed by event_id)
+_LIMIT_CACHE = {}
+_LIMIT_CACHE_TTL = 60  # 1 minutes
+_DEFAULT_LIMIT = 450
+
+def get_interaction_limit(event_id: str) -> int:
+    """
+    Fetch interaction limit for a given event.
+    Priority:
+    1. AOI_<event_id>/info.interaction_limit (per event)
+    2. system_config/interaction_limits.max_interactions_per_user (global)
+    3. fallback 450
+    Cached per event for 1 minutes.
+    """
+    now = time.time()
+    cached = _LIMIT_CACHE.get(event_id)
+    if cached and now - cached["time"] < _LIMIT_CACHE_TTL:
+        return cached["value"]
+
+    limit = _DEFAULT_LIMIT
+
+    try:
+        # Try per-event config
+        doc = db.collection(normalize_event_path(event_id)).document("info").get()
+        if doc.exists:
+            data = doc.to_dict() or {}
+            limit = int(data.get("interaction_limit", _DEFAULT_LIMIT))
+        else:
+            logger.warning(f"[SystemConfig] Missing info doc for event {event_id}; falling back to global limit.")
+
+        # Try global fallback (only if not found)
+        if limit == _DEFAULT_LIMIT:
+            sys_doc = db.collection("system_config").document("interaction_limits").get()
+            if sys_doc.exists:
+                limit = int(sys_doc.to_dict().get("max_interactions_per_user", _DEFAULT_LIMIT))
+    except Exception as e:
+        logger.error(f"[SystemConfig] Failed to load interaction limit for {event_id}: {e}")
+        limit = _DEFAULT_LIMIT
+
+    _LIMIT_CACHE[event_id] = {"value": limit, "time": now}
+    return limit

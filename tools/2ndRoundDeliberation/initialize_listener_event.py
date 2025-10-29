@@ -63,6 +63,8 @@ def initialize_event_collection(event_id, event_name, event_location, event_back
         'language_guidance': language_guidance,
         'extra_questions': extra_questions,
         'mode': 'listener',      # or "followup" / "survey"
+        'interaction_limit': 450,  # Default; can be customized per event later
+
 
         'second_round_prompts': {
             'system_prompt': (

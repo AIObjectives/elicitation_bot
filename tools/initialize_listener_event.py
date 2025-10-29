@@ -66,6 +66,7 @@ def initialize_event_collection(event_id, event_name, event_location, event_back
         'language_guidance': language_guidance,
         'extra_questions': extra_questions,
         'mode': 'listener'      # or "followup" / "survey"
+        
     })
     
     logger.info(f"[initialize_event_collection] Event '{event_name}' initialized/overwritten with extra questions.")

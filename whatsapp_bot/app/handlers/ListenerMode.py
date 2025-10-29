@@ -11,6 +11,7 @@ from requests.auth import HTTPBasicAuth
 from pydub import AudioSegment
 from fastapi import Response
 from app.deliberation.second_round_agent import run_second_round_for_user
+from app.utils.blacklist_helpers import get_interaction_limit 
 
 
 from config.config import (
@@ -747,8 +748,20 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
 
     data = event_doc.to_dict()
     interactions = data.get('interactions', [])
-    if len(interactions) >= 450:
-        send_message(From, "You have reached your interaction limit with AOI. Please contact AOI for further assistance.")
+
+
+    interaction_limit = get_interaction_limit(current_event_id)
+    if len(interactions) >= interaction_limit:
+        # Log event for moderation
+        db.collection("users_exceeding_limit").document(normalized_phone).set({
+            "phone": normalized_phone,
+            "event_id": current_event_id,
+            "timestamp": datetime.utcnow().isoformat(),
+            "total_interactions": len(interactions),
+            "limit_used": interaction_limit
+        }, merge=True)
+
+        send_message(From, f"You have reached your interaction limit ({interaction_limit}) for this event. Please contact AOI for assistance.")
         return Response(status_code=200)
 
     # Send user prompt to LLM

@@ -113,6 +113,8 @@ def initialize_event_collection(
         'follow_up_questions': follow_up_toggle,
         'extra_questions': extra_questions,  # Add extra questions block
         'mode': 'followup',      # or "listener" / "survey"
+        'interaction_limit': 450,  # Default; can be customized per event later
+
 
         'second_round_prompts': {
             'system_prompt': (

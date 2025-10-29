@@ -29,6 +29,8 @@ from app.deliberation.second_round_agent import run_second_round_for_user
 from app.utils.validators import _norm
 from app.utils.validators import normalize_event_path
 
+from app.utils.blacklist_helpers import is_blocked_number, get_interaction_limit
+
 
 
 def is_second_round_enabled(event_id: str) -> bool:
@@ -69,8 +71,13 @@ async def reply_followup(Body: str, From: str, MediaUrl0: str = None):
 
     logger.info(f"Received message from {From} with body '{Body}' and media URL {MediaUrl0}")
 
-    # Normalize phone number
     normalized_phone = From.replace("+", "").replace("-", "").replace(" ", "")
+
+    # Check if number is blacklisted
+    if is_blocked_number(normalized_phone):
+        logger.warning(f"[Blacklist] Ignoring message from blocked number: {normalized_phone}")
+        return Response(status_code=200)
+
 
     # Step 1: Retrieve or initialize user tracking document
     user_tracking_ref = db.collection('user_event_tracking').document(normalized_phone)
@@ -746,8 +753,20 @@ async def reply_followup(Body: str, From: str, MediaUrl0: str = None):
 
     data = event_doc.to_dict()
     interactions = data.get('interactions', [])
-    if len(interactions) >= 450:
-        send_message(From, "You have reached your interaction limit with AOI. Please contact AOI for further assistance.")
+  
+
+    interaction_limit = get_interaction_limit(current_event_id)
+    if len(interactions) >= interaction_limit:
+        # Log event for moderation
+        db.collection("users_exceeding_limit").document(normalized_phone).set({
+            "phone": normalized_phone,
+            "event_id": current_event_id,
+            "timestamp": datetime.utcnow().isoformat(),
+            "total_interactions": len(interactions),
+            "limit_used": interaction_limit
+        }, merge=True)
+
+        send_message(From, f"You have reached your interaction limit ({interaction_limit}) for this event. Please contact AOI for assistance.")
         return Response(status_code=200)
 
     # Send user prompt to LLM
