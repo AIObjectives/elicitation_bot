@@ -752,8 +752,6 @@ async def reply_followup(Body: str, From: str, MediaUrl0: str = None):
 
     data = event_doc.to_dict()
     interactions = data.get('interactions', [])
-  
-
     interaction_limit = get_interaction_limit(current_event_id)
     if len(interactions) >= interaction_limit:
         # Log event for moderation
