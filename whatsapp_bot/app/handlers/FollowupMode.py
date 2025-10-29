@@ -73,7 +73,6 @@ async def reply_followup(Body: str, From: str, MediaUrl0: str = None):
 
     normalized_phone = From.replace("+", "").replace("-", "").replace(" ", "")
 
-    # Check if number is blacklisted
     if is_blocked_number(normalized_phone):
         logger.warning(f"[Blacklist] Ignoring message from blocked number: {normalized_phone}")
         return Response(status_code=200)

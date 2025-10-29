@@ -64,7 +64,7 @@ def is_blocked_number(phone: str) -> bool:
 
 # Cache for limits (keyed by event_id)
 _LIMIT_CACHE = {}
-_LIMIT_CACHE_TTL = 60  # 1 minutes
+_LIMIT_CACHE_TTL = 60  # 1 minute
 _DEFAULT_LIMIT = 450
 
 def get_interaction_limit(event_id: str) -> int:
@@ -74,7 +74,7 @@ def get_interaction_limit(event_id: str) -> int:
     1. AOI_<event_id>/info.interaction_limit (per event)
     2. system_config/interaction_limits.max_interactions_per_user (global)
     3. fallback 450
-    Cached per event for 1 minutes.
+    Cached per event for 1 minute.
     """
     now = time.time()
     cached = _LIMIT_CACHE.get(event_id)

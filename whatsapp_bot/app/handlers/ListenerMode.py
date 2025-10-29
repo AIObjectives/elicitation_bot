@@ -11,7 +11,7 @@ from requests.auth import HTTPBasicAuth
 from pydub import AudioSegment
 from fastapi import Response
 from app.deliberation.second_round_agent import run_second_round_for_user
-from app.utils.blacklist_helpers import get_interaction_limit,is_blocked_number  
+from app.utils.blacklist_helpers import get_interaction_limit, is_blocked_number  
 
 
 from config.config import (
@@ -32,8 +32,6 @@ from app.services.openai_service import (
     extract_gender_with_llm,
     extract_region_with_llm
 )
-from app.utils.blacklist_helpers import is_blocked_number  
-
 
 from app.utils.validators import _norm
 from app.utils.validators import normalize_event_path
@@ -70,10 +68,8 @@ def is_second_round_enabled(event_id: str) -> bool:
 async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
     logger.info(f"Received message from {From} with body '{Body}' and media URL {MediaUrl0}")
 
-    # Normalize phone number
     normalized_phone = From.replace("+", "").replace("-", "").replace(" ", "")
-    
-    # Check if number is blacklisted
+
     if is_blocked_number(normalized_phone):
         logger.warning(f"[Blacklist] Ignoring message from blocked number: {normalized_phone}")
         return Response(status_code=200)
