@@ -36,7 +36,8 @@ from app.services.openai_service import (
 from app.utils.validators import _norm
 from app.utils.validators import normalize_event_path
 
-
+DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "gpt-4o-mini")
+FALLBACK_MODEL = os.getenv("FALLBACK_MODEL", "gpt-4.1-mini")
 
 def is_second_round_enabled(event_id: str) -> bool:
     """Return True iff info.second_round_claims_source.enabled is truthy."""
@@ -772,26 +773,26 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
         'interactions': firestore.ArrayUnion([{'message': Body}])
     })
 
-
-
-# --- PRIMARY + FALLBACK LOGIC (DYNAMIC MODEL) ---
-
     try:
+        # Attempt to fetch model configuration from Firestore
         event_info_ref = db.collection(normalize_event_path(current_event_id)).document("info")
         event_info_doc = event_info_ref.get()
+
+        # Pre-initialize with the environment or constant default
+        default_model = DEFAULT_MODEL
         if event_info_doc.exists:
             event_info_data = event_info_doc.to_dict()
-            default_model = event_info_data.get("default_model", "gpt-4o-mini")
-        else:
-            default_model = "gpt-4o-mini"
+            default_model = event_info_data.get("default_model", default_model)
+
         logger.info(f"[LLM Config] Using model from Firestore: {default_model}")
+
     except Exception as e:
-        logger.error(f"[LLM Config] Failed to fetch model from Firestore, defaulting to gpt-4o-mini: {e}")
-        default_model = "gpt-4o-mini"
+        logger.error(f"[LLM Config] Failed to fetch model from Firestore, defaulting to {DEFAULT_MODEL}: {e}")
+        default_model = DEFAULT_MODEL
 
 
     try:
-        # First attempt using the model fetched from Firestore
+        # Primary model attempt
         logger.info(f"[LLM Run] Starting primary run with model: {default_model}")
 
         run = client.beta.threads.runs.create_and_poll(
@@ -803,9 +804,9 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
 
         logger.info(f"[LLM Debug] Primary run status: {getattr(run, 'status', 'N/A')}")
 
-        # Fallback if it fails
+        # Fallback if the primary model failed or didn’t complete
         if run.status != "completed":
-            logger.warning(f"[LLM Fallback] Model {default_model} failed, retrying with gpt-4.1-mini")
+            logger.warning(f"[LLM Fallback] Model {default_model} failed, retrying with {FALLBACK_MODEL}")
 
             if hasattr(run, 'last_error'):
                 logger.error(f"[LLM Debug] last_error (primary): {run.last_error}")
@@ -816,7 +817,7 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
                 thread_id=thread.id,
                 assistant_id=assistant_id,
                 instructions=event_instructions,
-                model="gpt-4.1-mini"
+                model=FALLBACK_MODEL
             )
 
             logger.info(f"[LLM Debug] Fallback run status: {getattr(run, 'status', 'N/A')}")
@@ -837,7 +838,7 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
         send_message(From, assistant_response)
         event_doc_ref.update({
             'interactions': firestore.ArrayUnion([
-                {'response': assistant_response, 'model': final_model}
+                {'response': assistant_response, 'model': final_model, 'fallback': False}
             ])
         })
 
@@ -861,7 +862,7 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
         send_message(From, fallback_message)
         event_doc_ref.update({
             'interactions': firestore.ArrayUnion([
-                {'response': fallback_message, 'fallback': True}
+                {'response': fallback_message, 'model': None, 'fallback': True}
             ])
         })
 
