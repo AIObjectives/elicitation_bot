@@ -12,7 +12,7 @@ from pydub import AudioSegment
 from fastapi import Response
 from app.deliberation.second_round_agent import run_second_round_for_user
 from app.utils.blacklist_helpers import get_interaction_limit, is_blocked_number  
-
+import random
 
 from config.config import (
     db, logger, client, twilio_client,
@@ -36,7 +36,8 @@ from app.services.openai_service import (
 from app.utils.validators import _norm
 from app.utils.validators import normalize_event_path
 
-
+DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "gpt-4o-mini")
+FALLBACK_MODEL = os.getenv("FALLBACK_MODEL", "gpt-4.1-mini")
 
 def is_second_round_enabled(event_id: str) -> bool:
     """Return True iff info.second_round_claims_source.enabled is truthy."""
@@ -772,20 +773,97 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
         'interactions': firestore.ArrayUnion([{'message': Body}])
     })
 
-    run = client.beta.threads.runs.create_and_poll(
-        thread_id=thread.id,
-        assistant_id=assistant_id,
-        instructions=event_instructions
-    )
+    try:
+        # Attempt to fetch model configuration from Firestore
+        event_info_ref = db.collection(normalize_event_path(current_event_id)).document("info")
+        event_info_doc = event_info_ref.get()
 
-    if run.status == 'completed':
+        # Pre-initialize with the environment or constant default
+        default_model = DEFAULT_MODEL
+        if event_info_doc.exists:
+            event_info_data = event_info_doc.to_dict()
+            default_model = event_info_data.get("default_model", default_model)
+
+        logger.info(f"[LLM Config] Using model from Firestore: {default_model}")
+
+    except Exception as e:
+        logger.error(f"[LLM Config] Failed to fetch model from Firestore, defaulting to {DEFAULT_MODEL}: {e}")
+        default_model = DEFAULT_MODEL
+
+
+    try:
+        # Primary model attempt
+        logger.info(f"[LLM Run] Starting primary run with model: {default_model}")
+
+        run = client.beta.threads.runs.create_and_poll(
+            thread_id=thread.id,
+            assistant_id=assistant_id,
+            instructions=event_instructions,
+            model=default_model
+        )
+
+        logger.info(f"[LLM Debug] Primary run status: {getattr(run, 'status', 'N/A')}")
+
+        # Fallback if the primary model failed or didn’t complete
+        if run.status != "completed":
+            logger.warning(f"[LLM Fallback] Model {default_model} failed, retrying with {FALLBACK_MODEL}")
+
+            if hasattr(run, 'last_error'):
+                logger.error(f"[LLM Debug] last_error (primary): {run.last_error}")
+            if hasattr(run, 'incomplete_details'):
+                logger.error(f"[LLM Debug] incomplete_details (primary): {run.incomplete_details}")
+
+            run = client.beta.threads.runs.create_and_poll(
+                thread_id=thread.id,
+                assistant_id=assistant_id,
+                instructions=event_instructions,
+                model=FALLBACK_MODEL
+            )
+
+            logger.info(f"[LLM Debug] Fallback run status: {getattr(run, 'status', 'N/A')}")
+
+    except Exception as e:
+        logger.exception(f"[LLM Exception] Error while creating run: {e}")
+        run = None
+
+
+    # --- RESPONSE HANDLING ---
+    if run and run.status == "completed":
+        final_model = getattr(run, 'model', default_model)
+        logger.info(f"[LLM Success] Final model used: {final_model}")
+
         messages = client.beta.threads.messages.list(thread_id=thread.id)
         assistant_response = extract_text_from_messages(messages)
+
         send_message(From, assistant_response)
         event_doc_ref.update({
-            'interactions': firestore.ArrayUnion([{'response': assistant_response}])
+            'interactions': firestore.ArrayUnion([
+                {'response': assistant_response, 'model': final_model, 'fallback': False}
+            ])
         })
+
     else:
-        send_message(From, "There was an issue processing your request.")
+        logger.warning("[LLM Fallback] Both models failed or returned incomplete response.")
+
+        if run and hasattr(run, 'last_error'):
+            logger.error(f"[LLM Debug] last_error (final): {run.last_error}")
+        if run and hasattr(run, 'incomplete_details'):
+            logger.error(f"[LLM Debug] incomplete_details (final): {run.incomplete_details}")
+
+        fallback_responses = [
+            "Agreed.",
+            "Please continue.",
+            "That’s an interesting point, tell me more.",
+            "I understand.",
+            "Go on, I’m listening."
+        ]
+        fallback_message = random.choice(fallback_responses)
+
+        send_message(From, fallback_message)
+        event_doc_ref.update({
+            'interactions': firestore.ArrayUnion([
+                {'response': fallback_message, 'model': None, 'fallback': True}
+            ])
+        })
 
     return Response(status_code=200)

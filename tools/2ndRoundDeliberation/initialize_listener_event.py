@@ -64,6 +64,8 @@ def initialize_event_collection(event_id, event_name, event_location, event_back
         'extra_questions': extra_questions,
         'mode': 'listener',      # or "followup" / "survey"
         'interaction_limit': 450,  # Default; can be customized per event later
+        'default_model': 'gpt-4o-mini',
+
 
 
         'second_round_prompts': {
