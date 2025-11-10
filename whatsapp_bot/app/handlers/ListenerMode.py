@@ -11,7 +11,7 @@ from requests.auth import HTTPBasicAuth
 from pydub import AudioSegment
 from fastapi import Response
 from app.deliberation.second_round_agent import run_second_round_for_user
-from app.utils.blacklist_helpers import get_interaction_limit, is_blocked_number  
+from app.utils.blocklist_helpers import get_interaction_limit, is_blocked_number  
 import random
 
 from config.config import (
@@ -749,6 +749,8 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
 
     interaction_limit = get_interaction_limit(current_event_id)
     if len(interactions) >= interaction_limit:
+        logger.info(f"[Listener Mode] {normalized_phone} reached interaction limit "
+                f"({len(interactions)} / {interaction_limit}) for {current_event_id}")
         # Log event for moderation
         db.collection("users_exceeding_limit").document(normalized_phone).set({
             "phone": normalized_phone,

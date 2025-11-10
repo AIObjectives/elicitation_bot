@@ -23,7 +23,7 @@ def _get_cache_ttl() -> int:
         return _ttl_value
 
     try:
-        doc = db.collection("system_settings").document("blacklist_config").get()
+        doc = db.collection("blocked_numbers").document("_config").get()
         if doc.exists:
             val = doc.to_dict().get("cache_ttl_seconds", _DEFAULT_TTL)
             _ttl_value = int(val)

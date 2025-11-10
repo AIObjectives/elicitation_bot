@@ -41,9 +41,9 @@ if __name__ == "__main__":
     initialize_blacklist_config(
         default_ttl_seconds=3600,  # 1-hour cache TTL
         initial_blocked_numbers=[
-            "+1111",
-            "+999",
-            "555"  # add more as needed
+            "+whatsapp:131xxx",
+            "+whatsapp:131xxx",
+            "whatsapp:"  # add more as needed
         ]
     )
 
