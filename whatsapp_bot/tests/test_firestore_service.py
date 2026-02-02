@@ -504,7 +504,6 @@ class TestParticipantService(unittest.TestCase):
             # Assert - should detect normalized duplicate
             self.assertFalse(result)
 
-
 class TestReportService(unittest.TestCase):
     """Test cases for ReportService."""
 
