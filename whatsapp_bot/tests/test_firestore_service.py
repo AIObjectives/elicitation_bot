@@ -5,9 +5,13 @@ These tests demonstrate how to test the database service layer
 using mocks to avoid actual Firestore calls during testing.
 """
 
+import sys
 import unittest
 from unittest.mock import Mock, MagicMock, patch
 from datetime import datetime
+
+# Mock config before any app imports
+sys.modules['config.config'] = MagicMock()
 
 from app.services.firestore_service import (
     UserTrackingService,
