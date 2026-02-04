@@ -588,6 +588,66 @@ class ParticipantService:
             'second_round_intro_done': bool(data.get('second_round_intro_done', False))
         }
 
+    @staticmethod
+    def process_second_round_interaction(event_id: str, normalized_phone: str,
+                                        user_msg: str, sr_reply: str = None,
+                                        normalize_func=None) -> bool:
+        """
+        Process a second-round interaction transactionally to prevent duplicates.
+
+        This method uses Firestore transactions to ensure that duplicate user messages
+        are not processed twice. It compares the incoming message with the last user
+        message and skips processing if they match (after normalization).
+
+        Args:
+            event_id: Event ID
+            normalized_phone: Normalized phone number
+            user_msg: User's message
+            sr_reply: Second-round agent's reply (optional)
+            normalize_func: Function to normalize messages for comparison (optional)
+
+        Returns:
+            True if interaction was added, False if duplicate detected
+        """
+        from datetime import datetime
+
+        collection_name = EventService.get_collection_name(event_id)
+        doc_ref = db.collection(collection_name).document(normalized_phone)
+
+        @firestore.transactional
+        def _process_transaction(transaction, ref, msg, reply, norm_fn):
+            snap = ref.get(transaction=transaction)
+            data = snap.to_dict() if snap.exists else {"second_round_interactions": []}
+            interactions = data.get("second_round_interactions", [])
+
+            # Check for duplicate message
+            last_user_msg = None
+            for item in reversed(interactions):
+                if "message" in item:
+                    last_user_msg = item["message"]
+                    break
+
+            # Compare normalized messages if normalization function provided
+            if last_user_msg and norm_fn:
+                if norm_fn(last_user_msg) == norm_fn(msg):
+                    logger.info("[2nd-round] Duplicate user message detected; skipping re-run.")
+                    return False
+            elif last_user_msg == msg:
+                logger.info("[2nd-round] Duplicate user message detected; skipping re-run.")
+                return False
+
+            # Add new interactions
+            now_iso = datetime.utcnow().isoformat()
+            interactions.append({"message": msg, "ts": now_iso})
+            if reply:
+                interactions.append({"response": reply, "ts": now_iso})
+
+            transaction.set(ref, {"second_round_interactions": interactions}, merge=True)
+            return True
+
+        transaction = db.transaction()
+        return _process_transaction(transaction, doc_ref, user_msg, sr_reply, normalize_func)
+
 
 class ReportService:
     """Handles operations on report collections for second round deliberation."""

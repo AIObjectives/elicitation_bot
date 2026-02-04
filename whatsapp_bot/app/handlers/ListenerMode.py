@@ -5,7 +5,6 @@ import io
 import re
 from uuid import uuid4
 from datetime import datetime, timedelta
-from firebase_admin import credentials, firestore
 import requests
 from requests.auth import HTTPBasicAuth
 from pydub import AudioSegment
