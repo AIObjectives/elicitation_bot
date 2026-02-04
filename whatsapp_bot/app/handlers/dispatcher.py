@@ -1,6 +1,6 @@
 
 from fastapi import HTTPException, Response
-from config.config import db
+from app.services.firestore_service import UserTrackingService, EventService
 from app.handlers.ListenerMode import reply_listener
 from app.handlers.FollowupMode import reply_followup
 from app.handlers.SurveyMode import reply_survey
@@ -13,20 +13,19 @@ async def dispatch_message(Body: str, From: str, MediaUrl0: str = None):
 
     # Normalize phone number
     normalized_phone = From.replace("+", "").replace("-", "").replace(" ", "")
-    user_ref = db.collection("user_event_tracking").document(normalized_phone)
-    user_doc = user_ref.get().to_dict() or {}
+    user_data = UserTrackingService.get_user(normalized_phone) or {}
 
-    current_event_id = user_doc.get("current_event_id")
+    current_event_id = user_data.get("current_event_id")
     if not current_event_id:
         # Let the handler (e.g., listener) manage missing event_id state
         return await reply_listener(Body, From, MediaUrl0)
 
-    # Fetch mode from Firestore
-    info = db.collection(f"AOI_{current_event_id}").document("info").get()
-    if not info.exists:
+    # Fetch mode from event info
+    if not EventService.event_exists(current_event_id):
         raise HTTPException(status_code=400, detail="Unknown event ID")
 
-    mode = info.to_dict().get("mode", "listener").lower()
+    mode = EventService.get_event_mode(current_event_id) or "listener"
+    mode = mode.lower()
 
     # Route to the correct mode handler
     if mode == "listener":
