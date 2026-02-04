@@ -31,14 +31,14 @@ from app.services.openai_service import (
     extract_region_with_llm
 )
 from app.utils.survey_helpers import initialize_user_document
-from app.utils.validators import normalize_event_path
+from app.utils.validators import normalize_event_path, normalize_phone
 from app.utils.blocklist_helpers import get_interaction_limit, is_blocked_number  
 
 
 async def reply_survey(Body: str, From: str, MediaUrl0: str = None):
     logger.info(f"Received message from {From} with body '{Body}' and media URL {MediaUrl0}")
 
-    normalized_phone = From.replace("+", "").replace("-", "").replace(" ", "")
+    normalized_phone = normalize_phone(From)
     if is_blocked_number(normalized_phone):
         logger.warning(f"[Blacklist] Ignoring message from blocked number: {normalized_phone}")
         return Response(status_code=200)

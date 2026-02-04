@@ -26,8 +26,7 @@ from app.services.openai_service import (
 from app.utils.followup_helpers import generate_bot_instructions
 
 from app.deliberation.second_round_agent import run_second_round_for_user
-from app.utils.validators import _norm
-from app.utils.validators import normalize_event_path
+from app.utils.validators import _norm, normalize_event_path, normalize_phone
 
 from app.utils.blocklist_helpers import is_blocked_number, get_interaction_limit
 
@@ -66,12 +65,9 @@ def is_second_round_enabled(event_id: str) -> bool:
 
 
 async def reply_followup(Body: str, From: str, MediaUrl0: str = None):
-    
-
-
     logger.info(f"Received message from {From} with body '{Body}' and media URL {MediaUrl0}")
 
-    normalized_phone = From.replace("+", "").replace("-", "").replace(" ", "")
+    normalized_phone = normalize_phone(From)
 
     if is_blocked_number(normalized_phone):
         logger.warning(f"[Blacklist] Ignoring message from blocked number: {normalized_phone}")
