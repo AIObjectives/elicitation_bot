@@ -33,8 +33,7 @@ from app.services.openai_service import (
     extract_region_with_llm
 )
 
-from app.utils.validators import _norm
-from app.utils.validators import normalize_event_path
+from app.utils.validators import _norm, normalize_event_path, normalize_phone
 
 DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "gpt-4o-mini")
 FALLBACK_MODEL = os.getenv("FALLBACK_MODEL", "gpt-4.1-mini")
@@ -69,7 +68,7 @@ def is_second_round_enabled(event_id: str) -> bool:
 async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
     logger.info(f"Received message from {From} with body '{Body}' and media URL {MediaUrl0}")
 
-    normalized_phone = From.replace("+", "").replace("-", "").replace(" ", "")
+    normalized_phone = normalize_phone(From)
 
     if is_blocked_number(normalized_phone):
         logger.warning(f"[Blacklist] Ignoring message from blocked number: {normalized_phone}")
