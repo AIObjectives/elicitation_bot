@@ -57,12 +57,11 @@ def generate_bot_instructions(event_id):
     Generate dynamic bot instructions based on the event's name and location.
     (moved wholesale from your monolithic file)
     """
-    from config.config import db
-    event_info_ref = db.collection(f'AOI_{event_id}').document('info')
-    event_info_doc = event_info_ref.get()
+    from app.services.firestore_service import EventService
 
-    if event_info_doc.exists:
-        event_info = event_info_doc.to_dict()
+    event_info = EventService.get_event_info(event_id)
+
+    if event_info:
         event_name = event_info.get('event_name', 'the event')
         event_location = event_info.get('event_location', 'the location')
         event_background = event_info.get('event_background', 'the background')
@@ -71,6 +70,7 @@ def generate_bot_instructions(event_id):
         event_name = 'the event'
         event_location = 'the location'
         event_background = 'the background'
+        language_guidance = ''
 
     instructions = f"""
     Bot Objective
