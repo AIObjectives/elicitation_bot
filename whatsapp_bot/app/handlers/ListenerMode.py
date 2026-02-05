@@ -5,7 +5,6 @@ import io
 import re
 from uuid import uuid4
 from datetime import datetime, timedelta
-from firebase_admin import credentials, firestore
 import requests
 from requests.auth import HTTPBasicAuth
 from pydub import AudioSegment
@@ -34,35 +33,14 @@ from app.services.openai_service import (
 )
 
 from app.utils.validators import _norm, normalize_event_path, normalize_phone
+from app.services.firestore_service import (
+    UserTrackingService,
+    EventService,
+    ParticipantService
+)
 
 DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "gpt-4o-mini")
 FALLBACK_MODEL = os.getenv("FALLBACK_MODEL", "gpt-4.1-mini")
-
-def is_second_round_enabled(event_id: str) -> bool:
-    """Return True iff info.second_round_claims_source.enabled is truthy."""
-    event_path = normalize_event_path(event_id)
-    info_ref = db.collection(event_path).document("info")
-    info_doc = info_ref.get()
-    if not info_doc.exists:
-        return False
-
-    info = info_doc.to_dict() or {}
-    src = info.get("second_round_claims_source") or {}
-    if isinstance(src, dict):
-        val = src.get("enabled")
-        if isinstance(val, bool):
-            return val
-        if isinstance(val, str):
-            return val.strip().lower() in {"true", "1", "yes", "on"}
-
-    legacy = info.get("second_deliberation_enabled")
-    if isinstance(legacy, bool):
-        return legacy
-    if isinstance(legacy, str):
-        return legacy.strip().lower() in {"true", "1", "yes", "on"}
-
-    return False
-
 
 
 async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
@@ -75,23 +53,7 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
         return Response(status_code=200)
 
     # Step 1: Retrieve or initialize user tracking document
-    user_tracking_ref = db.collection('user_event_tracking').document(normalized_phone)
-    user_tracking_doc = user_tracking_ref.get()
-    if user_tracking_doc.exists:
-        user_data = user_tracking_doc.to_dict()
-    else:
-        # Initialize user doc with minimal structure
-        user_data = {
-            'events': [],
-            'current_event_id': None,
-            'awaiting_event_id': False,
-            'awaiting_event_change_confirmation': False,
-            'last_inactivity_prompt': None,
-            'awaiting_extra_questions': False,
-            'current_extra_question_index': 0,
-            'invalid_attempts': 0  # for handling inactivity prompt responses
-        }
-        user_tracking_ref.set(user_data)
+    _, user_data = UserTrackingService.get_or_create_user(normalized_phone)
 
     # Extract main fields from user_data
     user_events = user_data.get('events', [])
@@ -105,29 +67,15 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
     invalid_attempts = user_data.get('invalid_attempts', 0)
 
     # Remove duplicates in user_events (keep the latest)
-    unique_events = {}
-    for event in user_events:
-        eid = event['event_id']
-        if eid not in unique_events:
-            unique_events[eid] = event
-        else:
-            # If duplicate, keep the more recent one
-            existing_time = datetime.fromisoformat(unique_events[eid]['timestamp'])
-            new_time = datetime.fromisoformat(event['timestamp'])
-            if new_time > existing_time:
-                unique_events[eid] = event
-    user_events = list(unique_events.values())
-    user_data['events'] = user_events
-    user_tracking_ref.update({'events': user_events})
+    user_events = UserTrackingService.deduplicate_events(user_events)
+    UserTrackingService.update_user_events(normalized_phone, user_events)
 
     # Validate current event
     if current_event_id:
-        event_info_ref = db.collection(normalize_event_path(current_event_id)).document('info')
-        event_info_doc = event_info_ref.get()
-        if not event_info_doc.exists:
+        if not EventService.event_exists(current_event_id):
             # The event no longer exists
             user_events = [e for e in user_events if e['event_id'] != current_event_id]
-            user_tracking_ref.update({
+            UserTrackingService.update_user(normalized_phone, {
                 'current_event_id': None,
                 'events': user_events,
                 'awaiting_event_id': True
@@ -164,12 +112,12 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
             else:
                 event_list = '\n'.join([f"{i+1}. {evt['event_id']}" for i, evt in enumerate(user_events)])
                 send_message(From, f"You have been inactive for more than 24 hours.\nYour events:\n{event_list}\nPlease reply with the number of the event you'd like to continue.")
-                user_tracking_ref.update({'last_inactivity_prompt': current_time.isoformat()})
+                UserTrackingService.update_user(normalized_phone, {'last_inactivity_prompt': current_time.isoformat()})
                 return Response(status_code=200)
         else:
             event_list = '\n'.join([f"{i+1}. {evt['event_id']}" for i, evt in enumerate(user_events)])
             send_message(From, f"You have been inactive for more than 24 hours.\nYour events:\n{event_list}\nPlease reply with the number of the event you'd like to continue.")
-            user_tracking_ref.update({'last_inactivity_prompt': current_time.isoformat()})
+            UserTrackingService.update_user(normalized_phone, {'last_inactivity_prompt': current_time.isoformat()})
             return Response(status_code=200)
 
     # Step 3: If user was prompted to pick an event after inactivity
@@ -185,7 +133,7 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
                     evt['timestamp'] = current_time_iso
                     break
 
-            user_tracking_ref.update({
+            UserTrackingService.update_user(normalized_phone, {
                 'current_event_id': current_event_id,
                 'events': user_events,
                 'last_inactivity_prompt': None,
@@ -195,7 +143,7 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
         else:
             invalid_attempts += 1
             if invalid_attempts < 2:
-                user_tracking_ref.update({'invalid_attempts': invalid_attempts})
+                UserTrackingService.update_user(normalized_phone, {'invalid_attempts': invalid_attempts})
                 send_message(From, "Invalid event selection. Please reply with the number corresponding to the event you'd like to continue.")
                 return Response(status_code=200)
             else:
@@ -206,7 +154,7 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
                         if evt['event_id'] == current_event_id:
                             evt['timestamp'] = current_time_iso
                             break
-                    user_tracking_ref.update({
+                    UserTrackingService.update_user(normalized_phone, {
                         'current_event_id': current_event_id,
                         'events': user_events,
                         'last_inactivity_prompt': None,
@@ -215,7 +163,7 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
                     return Response(status_code=200)
                 else:
                     send_message(From, "No valid selection made and no current event found. Please provide your event ID to proceed.")
-                    user_tracking_ref.update({
+                    UserTrackingService.update_user(normalized_phone, {
                         'awaiting_event_id': True,
                         'last_inactivity_prompt': None,
                         'invalid_attempts': 0
@@ -228,7 +176,7 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
             new_event_id = user_data.get('new_event_id_pending')
             if not event_id_valid(new_event_id):
                 send_message(From, f"The event ID '{new_event_id}' is no longer valid. Please enter a new event ID.")
-                user_tracking_ref.update({
+                UserTrackingService.update_user(normalized_phone, {
                     'awaiting_event_change_confirmation': False,
                     'new_event_id_pending': None,
                     'awaiting_event_id': True
@@ -251,7 +199,7 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
                     'timestamp': current_time_iso
                 })
 
-            user_tracking_ref.update({
+            UserTrackingService.update_user(normalized_phone, {
                 'current_event_id': current_event_id,
                 'events': user_events,
                 'awaiting_event_change_confirmation': False,
@@ -261,38 +209,19 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
             })
 
             # Initialize participant doc if necessary
-            event_doc_ref = db.collection(normalize_event_path(current_event_id)).document(normalized_phone)
-            event_doc = event_doc_ref.get()
-            if not event_doc.exists:
-                event_doc_ref.set({
-                    'name': None,
-                    'interactions': [],
-                    'event_id': current_event_id
-                })
-            
+            ParticipantService.initialize_participant(current_event_id, normalized_phone)
+
             # Send the new event's initial message (if exists)
-            event_details_ref = db.collection(normalize_event_path(current_event_id)).document('info')
-            event_details_doc = event_details_ref.get()
-            initial_message = "Thank you for agreeing to participate..."
-            if event_details_doc.exists:
-                event_info = event_details_doc.to_dict()
-                initial_message = event_info.get('initial_message', initial_message)
+            initial_message = EventService.get_initial_message(current_event_id)
 
             send_message(From, f"You have switched to event {current_event_id}.")
             #send_message(From, initial_message)
 
             # Start the extra-questions flow if any are enabled
-            if event_details_doc.exists:
-                event_info = event_details_doc.to_dict()
-                extra_questions = event_info.get('extra_questions', {})
+            extra_questions, enabled_questions = EventService.get_ordered_extra_questions(current_event_id)
 
-                # Sort by 'order' to ensure a predictable sequence
-                question_items = [(k, v) for k, v in extra_questions.items() if v.get('enabled')]
-                question_items.sort(key=lambda x: x[1].get('order', 9999))
-                enabled_questions = [item[0] for item in question_items]
-
-                if enabled_questions:
-                    user_tracking_ref.update({
+            if enabled_questions:
+                    UserTrackingService.update_user(normalized_phone, {
                         'awaiting_extra_questions': True,
                         'current_extra_question_index': 0
                     })
@@ -307,7 +236,7 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
 
             return Response(status_code=200)
         else:
-            user_tracking_ref.update({
+            UserTrackingService.update_user(normalized_phone, {
                 'awaiting_event_change_confirmation': False,
                 'new_event_id_pending': None
             })
@@ -336,7 +265,7 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
                     'timestamp': current_time_iso
                 })
 
-            user_tracking_ref.update({
+            UserTrackingService.update_user(normalized_phone, {
                 'events': user_events,
                 'current_event_id': current_event_id,
                 'awaiting_event_id': False,
@@ -344,34 +273,18 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
                 'current_extra_question_index': 0
             })
 
-            
-            event_doc_ref = db.collection(normalize_event_path(event_id)).document(normalized_phone)
-            event_doc_ref.set({'name': None, 'interactions': [], 'event_id': event_id})
 
-            
-            event_info_ref = db.collection(normalize_event_path(current_event_id)).document('info')
-            event_info_doc = event_info_ref.get()
-            default_initial_message = "Thank you for agreeing to participate..."
-            if event_info_doc.exists:
-                event_info = event_info_doc.to_dict()
-                initial_message = event_info.get('initial_message', default_initial_message)
-            else:
-                initial_message = default_initial_message
+            ParticipantService.initialize_participant(event_id, normalized_phone)
+
+            initial_message = EventService.get_initial_message(current_event_id)
 
             #send_message(From, initial_message) #instead to ensure the order i ll send the combined message-
 
             # Check if there are enabled extra questions
-            if event_info_doc.exists:
-                event_info = event_info_doc.to_dict()
-                extra_questions = event_info.get('extra_questions', {})
+            extra_questions, enabled_questions = EventService.get_ordered_extra_questions(current_event_id)
 
-                # Sort by 'order'
-                question_items = [(k, v) for k, v in extra_questions.items() if v.get('enabled')]
-                question_items.sort(key=lambda x: x[1].get('order', 9999))
-                enabled_questions = [item[0] for item in question_items]
-
-                if enabled_questions:
-                    user_tracking_ref.update({
+            if enabled_questions:
+                    UserTrackingService.update_user(normalized_phone, {
                         'awaiting_extra_questions': True,
                         'current_extra_question_index': 0
                     })
@@ -382,38 +295,10 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
                     combined_msg = f"{initial_message}\n\n{first_question_text}"
                     send_message(From, combined_msg)
 
-                else:
-                    #send_message(From, "You can now start the conversation.")
-                    # <-- CHANGE THIS PART:
-                    # Previously: send_message(From, "You can now start the conversation.")
-                    
-                    # 1) fetch the participant's updated name from the event doc
-                    
-                    participant_doc = db.collection(normalize_event_path(current_event_id)).document(normalized_phone).get()
-                    participant_data = participant_doc.to_dict() if participant_doc.exists else {}
-                    participant_name = participant_data.get('name', None)
-
-                    # 2) generate the welcome message
-                    welcome_msg = create_welcome_message(current_event_id, participant_name=participant_name)
-                    
-                    # 3) send it
-                    send_message(From, welcome_msg)
             else:
-                #send_message(From, "You can now start the conversation.")
-                # <-- CHANGE THIS PART:
-        # Previously: send_message(From, "You can now start the conversation.")
-        
-        # 1) fetch the participant's updated name from the event doc
-            
-                    participant_doc = db.collection(normalize_event_path(current_event_id)).document(normalized_phone).get()
-                    participant_data = participant_doc.to_dict() if participant_doc.exists else {}
-                    participant_name = participant_data.get('name', None)
-
-                    # 2) generate the welcome message
-                    welcome_msg = create_welcome_message(current_event_id, participant_name=participant_name)
-                    
-                    # 3) send it
-                    send_message(From, welcome_msg)
+                participant_name = ParticipantService.get_participant_name(current_event_id, normalized_phone)
+                welcome_msg = create_welcome_message(current_event_id, participant_name=participant_name)
+                send_message(From, welcome_msg)
 
             return Response(status_code=200)
         else:
@@ -442,26 +327,15 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
                 return Response(status_code=400, content="Unsupported media type.")
 
         # Load the event details and the question
-        event_details_ref = db.collection(normalize_event_path(current_event_id)).document('info')
-        event_details_doc = event_details_ref.get()
-        if not event_details_doc.exists:
-            # If no info doc, just stop
-            user_tracking_ref.update({'awaiting_extra_questions': False})
+        extra_questions, enabled_questions = EventService.get_ordered_extra_questions(current_event_id)
+
+        if not enabled_questions:
+            UserTrackingService.update_user(normalized_phone, {'awaiting_extra_questions': False})
             send_message(From, "No event info found. You can proceed with normal conversation.")
             return Response(status_code=200)
 
-        event_details = event_details_doc.to_dict()
-        extra_questions = event_details.get('extra_questions', {})
-
-        # Sort by 'order' to ensure a predictable sequence
-        question_items = [(k, v) for k, v in extra_questions.items() if v.get('enabled')]
-        question_items.sort(key=lambda x: x[1].get('order', 9999))
-        enabled_questions = [item[0] for item in question_items]
-
         # Get participant doc
-        event_doc_ref = db.collection(normalize_event_path(current_event_id)).document(normalized_phone)
-        event_doc = event_doc_ref.get()
-        participant_data = event_doc.to_dict() if event_doc.exists else {}
+        participant_data = ParticipantService.get_participant(current_event_id, normalized_phone) or {}
 
         # If we still have a question to ask
         if current_extra_question_index < len(enabled_questions):
@@ -472,28 +346,27 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
             if function_id == "extract_name_with_llm":
                 name_val = extract_name_with_llm(Body, current_event_id)
                 # Store the extracted name in both the question_key field and "name"
-                event_doc_ref.update({question_key: name_val})
-                event_doc_ref.update({"name": name_val})
+                ParticipantService.update_participant(current_event_id, normalized_phone, {question_key: name_val, "name": name_val})
 
             elif function_id == "extract_age_with_llm":
                 age_val = extract_age_with_llm(Body, current_event_id)
-                event_doc_ref.update({question_key: age_val})
+                ParticipantService.update_participant(current_event_id, normalized_phone, {question_key: age_val})
 
             elif function_id == "extract_gender_with_llm":
                 gender_val = extract_gender_with_llm(Body, current_event_id)
-                event_doc_ref.update({question_key: gender_val})
+                ParticipantService.update_participant(current_event_id, normalized_phone, {question_key: gender_val})
 
             elif function_id == "extract_region_with_llm":
                 region_val = extract_region_with_llm(Body, current_event_id)
-                event_doc_ref.update({question_key: region_val})
+                ParticipantService.update_participant(current_event_id, normalized_phone, {question_key: region_val})
 
             else:
                 # No recognized function, just store raw response
-                event_doc_ref.update({question_key: Body})
+                ParticipantService.update_participant(current_event_id, normalized_phone, {question_key: Body})
 
             # Move to next question
             current_extra_question_index += 1
-            user_tracking_ref.update({'current_extra_question_index': current_extra_question_index})
+            UserTrackingService.update_user(normalized_phone, {'current_extra_question_index': current_extra_question_index})
 
             # If more questions remain, ask the next one
             if current_extra_question_index < len(enabled_questions):
@@ -502,10 +375,9 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
                 send_message(From, next_question_text)
             else:
                 # Done with extra questions
-                user_tracking_ref.update({'awaiting_extra_questions': False})
-                # Fetch updated doc to get the final name
-                updated_data = event_doc_ref.get().to_dict()
-                participant_name = updated_data.get('name', None)
+                UserTrackingService.update_user(normalized_phone, {'awaiting_extra_questions': False})
+                # Fetch updated name
+                participant_name = ParticipantService.get_participant_name(current_event_id, normalized_phone)
 
                 # Send welcome message with the name (if valid)
                 welcome_msg = create_welcome_message(current_event_id, participant_name=participant_name)
@@ -534,7 +406,7 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
                     'timestamp': current_time_iso
                 })
 
-            user_tracking_ref.update({
+            UserTrackingService.update_user(normalized_phone, {
                 'events': user_events,
                 'current_event_id': current_event_id,
                 'awaiting_event_id': False,
@@ -542,88 +414,38 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
                 'current_extra_question_index': 0
             })
 
-            event_doc_ref = db.collection(normalize_event_path(event_id)).document(normalized_phone)
-            event_doc_ref.set({'name': None, 'interactions': [], 'event_id': event_id})
+            ParticipantService.initialize_participant(event_id, normalized_phone)
 
-           
-            event_info_ref = db.collection(normalize_event_path(current_event_id)).document('info')
-            event_info_doc = event_info_ref.get()
-            default_initial_message = "Thank you for agreeing to participate..."
-            if event_info_doc.exists:
-                event_info = event_info_doc.to_dict()
-                initial_message = event_info.get('initial_message', default_initial_message)
-            else:
-                initial_message = default_initial_message
-
+            initial_message = EventService.get_initial_message(current_event_id)
             send_message(From, initial_message)
 
             # Check for extra questions
-            if event_info_doc.exists:
-                event_info = event_info_doc.to_dict()
-                extra_questions = event_info.get('extra_questions', {})
+            extra_questions, enabled_questions = EventService.get_ordered_extra_questions(current_event_id)
 
-                # Sort by 'order'
-                question_items = [(k, v) for k, v in extra_questions.items() if v.get('enabled')]
-                question_items.sort(key=lambda x: x[1].get('order', 9999))
-                enabled_questions = [item[0] for item in question_items]
-
-                if enabled_questions:
-                    user_tracking_ref.update({
+            if enabled_questions:
+                    UserTrackingService.update_user(normalized_phone, {
                         'awaiting_extra_questions': True,
                         'current_extra_question_index': 0
                     })
                     first_key = enabled_questions[0]
                     first_text = extra_questions[first_key]['text']
                     send_message(From, first_text)
-                else:
-                    #send_message(From, "You can now start the conversation.")
-
-                    # <-- CHANGE THIS PART:
-                    # Previously: send_message(From, "You can now start the conversation.")
-                    
-                    # 1) fetch the participant's updated name from the event doc
-            
-                    participant_data = db.collection(normalize_event_path(current_event_id)).document(normalized_phone).get()
-                    participant_data = participant_doc.to_dict() if participant_doc.exists else {}
-                    participant_name = participant_data.get('name', None)
-
-                    # 2) generate the welcome message
-                    welcome_msg = create_welcome_message(current_event_id, participant_name=participant_name)
-                    
-                    # 3) send it
-                    send_message(From, welcome_msg)
-
-                    ##
-
             else:
-                #send_message(From, "You can now start the conversation.")
-                # <-- CHANGE THIS PART:
-        # Previously: send_message(From, "You can now start the conversation.")
-        
-                # 1) fetch the participant's updated name from the event doc
-                participant_doc = db.collection(normalize_event_path(current_event_id)).document(normalized_phone).get()
-                participant_data = participant_doc.to_dict() if participant_doc.exists else {}
-                participant_name = participant_data.get('name', None)
-
-                # 2) generate the welcome message
+                participant_name = ParticipantService.get_participant_name(current_event_id, normalized_phone)
                 welcome_msg = create_welcome_message(current_event_id, participant_name=participant_name)
-                
-                # 3) send it
                 send_message(From, welcome_msg)
-                #
 
             return Response(status_code=200)
         else:
             send_message(From, "Welcome! Please provide your event ID to proceed.")
-            user_tracking_ref.update({'awaiting_event_id': True})
+            UserTrackingService.update_user(normalized_phone, {'awaiting_event_id': True})
             return Response(status_code=200)
 
     # Step 8: Handle "change name" or "change event" commands
     if Body.lower().startswith("change name "):
         new_name = Body[12:].strip()
         if new_name:
-            event_doc_ref = db.collection(normalize_event_path(current_event_id)).document(normalized_phone)
-            event_doc_ref.update({'name': new_name})
+            ParticipantService.set_participant_name(current_event_id, normalized_phone, new_name)
             send_message(From, f"Your name has been updated to {new_name}. Please continue.")
         else:
             send_message(From, "It seems there was an error updating your name. Please try again.")
@@ -636,7 +458,7 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
                 send_message(From, f"You are already in event {new_event_id}.")
                 return Response(status_code=200)
             send_message(From, f"You requested to change to event {new_event_id}. Please confirm by replying 'yes' or cancel with 'no'.")
-            user_tracking_ref.update({
+            UserTrackingService.update_user(normalized_phone, {
                 'awaiting_event_change_confirmation': True,
                 'new_event_id_pending': new_event_id
             })
@@ -646,25 +468,14 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
 
     # Step 9: Handle user finishing or finalizing
     if Body.strip().lower() in ['finalize', 'finish']:
-        default_completion_message = "Thank you. You have completed this survey!"
-        event_info_ref = db.collection(normalize_event_path(current_event_id)).document('info')
-        event_info_doc = event_info_ref.get()
-        if event_info_doc.exists:
-            event_info = event_info_doc.to_dict()
-            completion_message = event_info.get('completion_message', default_completion_message)
-        else:
-            completion_message = default_completion_message
-
+        completion_message = EventService.get_completion_message(current_event_id)
         send_message(From, completion_message)
         return Response(status_code=200)
 
     # Step 10: Otherwise, normal conversation with the LLM
-    event_details_ref = db.collection(normalize_event_path(current_event_id)).document('info')
-    event_details_doc = event_details_ref.get()
-    welcome_message = "Welcome! You can now start sending text and audio messages."
-    if event_details_doc.exists:
-        event_details = event_details_doc.to_dict()
-        welcome_message = event_details.get('welcome_message', welcome_message)
+    welcome_message = EventService.get_welcome_message(current_event_id)
+    if not welcome_message:
+        welcome_message = "Welcome! You can now start sending text and audio messages."
 
     event_instructions = generate_bot_instructions(current_event_id)
 
@@ -692,38 +503,17 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
 # ----------------------------
 # 2ND-ROUND DELIBERATION PATH
 # ----------------------------
-    if current_event_id and is_second_round_enabled(current_event_id):
-        sr_coll = db.collection(normalize_event_path(current_event_id))
-        sr_doc_ref = sr_coll.document(normalized_phone)
-
-        @firestore.transactional
-        def process_second_round(transaction, ref, user_msg, sr_reply=None):
-            snap = ref.get(transaction=transaction)
-            data = snap.to_dict() if snap.exists else {"second_round_interactions": []}
-            interactions = data.get("second_round_interactions", [])
-            last_user_msg = None
-            for item in reversed(interactions):
-                if "message" in item:
-                    last_user_msg = item["message"]
-                    break
-
-            if last_user_msg and _norm(last_user_msg) == _norm(user_msg):
-                logger.info("[2nd-round] Duplicate user message detected; skipping re-run.")
-                return False  
-
-            
-            now_iso = datetime.utcnow().isoformat()
-            interactions.append({"message": user_msg, "ts": now_iso})
-            if sr_reply:
-                interactions.append({"response": sr_reply, "ts": now_iso})
-
-            transaction.set(ref, {"second_round_interactions": interactions}, merge=True)
-            return True
-
+    if current_event_id and EventService.is_second_round_enabled(current_event_id):
         sr_reply = run_second_round_for_user(current_event_id, normalized_phone, user_msg=Body)
 
-        transaction = db.transaction()
-        success = process_second_round(transaction, sr_doc_ref, Body, sr_reply)
+        # Use transactional method to prevent duplicate processing
+        success = ParticipantService.process_second_round_interaction(
+            current_event_id,
+            normalized_phone,
+            Body,
+            sr_reply,
+            normalize_func=_norm
+        )
 
         if not success:
             return Response(status_code=200)
@@ -737,25 +527,21 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
     # ---- end 2nd-round branch; normal flow continues below ----
 
     # Store user message
-    event_doc_ref = db.collection(normalize_event_path(current_event_id)).document(normalized_phone)
-    event_doc = event_doc_ref.get()
-    if not event_doc.exists:
-        event_doc_ref.set({'interactions': [], 'name': None, 'limit_reached_notified': False})
+    ParticipantService.initialize_participant(current_event_id, normalized_phone)
 
-    data = event_doc.to_dict()
-    interactions = data.get('interactions', [])
-
-
+    # Check interaction limit using the new configurable limit
+    interaction_count = ParticipantService.get_interaction_count(current_event_id, normalized_phone)
     interaction_limit = get_interaction_limit(current_event_id)
-    if len(interactions) >= interaction_limit:
+
+    if interaction_count >= interaction_limit:
         logger.info(f"[Listener Mode] {normalized_phone} reached interaction limit "
-                f"({len(interactions)} / {interaction_limit}) for {current_event_id}")
+                f"({interaction_count} / {interaction_limit}) for {current_event_id}")
         # Log event for moderation
         db.collection("users_exceeding_limit").document(normalized_phone).set({
             "phone": normalized_phone,
             "event_id": current_event_id,
             "timestamp": datetime.utcnow().isoformat(),
-            "total_interactions": len(interactions),
+            "total_interactions": interaction_count,
             "limit_used": interaction_limit
         }, merge=True)
 
@@ -770,20 +556,16 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
         content=Body
     )
 
-    event_doc_ref.update({
-        'interactions': firestore.ArrayUnion([{'message': Body}])
-    })
+    ParticipantService.append_interaction(current_event_id, normalized_phone, {'message': Body})
 
     try:
         # Attempt to fetch model configuration from Firestore
-        event_info_ref = db.collection(normalize_event_path(current_event_id)).document("info")
-        event_info_doc = event_info_ref.get()
+        event_info = EventService.get_event_info(current_event_id)
 
         # Pre-initialize with the environment or constant default
         default_model = DEFAULT_MODEL
-        if event_info_doc.exists:
-            event_info_data = event_info_doc.to_dict()
-            default_model = event_info_data.get("default_model", default_model)
+        if event_info:
+            default_model = event_info.get("default_model", default_model)
 
         logger.info(f"[LLM Config] Using model from Firestore: {default_model}")
 
@@ -837,12 +619,11 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
         assistant_response = extract_text_from_messages(messages)
 
         send_message(From, assistant_response)
-        event_doc_ref.update({
-            'interactions': firestore.ArrayUnion([
-                {'response': assistant_response, 'model': final_model, 'fallback': False}
-            ])
+        ParticipantService.append_interaction(current_event_id, normalized_phone, {
+            'response': assistant_response,
+            'model': final_model,
+            'fallback': False
         })
-
     else:
         logger.warning("[LLM Fallback] Both models failed or returned incomplete response.")
 
@@ -861,10 +642,10 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
         fallback_message = random.choice(fallback_responses)
 
         send_message(From, fallback_message)
-        event_doc_ref.update({
-            'interactions': firestore.ArrayUnion([
-                {'response': fallback_message, 'model': None, 'fallback': True}
-            ])
+        ParticipantService.append_interaction(current_event_id, normalized_phone, {
+            'response': fallback_message,
+            'model': None,
+            'fallback': True
         })
 
     return Response(status_code=200)
