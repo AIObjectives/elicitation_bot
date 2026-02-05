@@ -21,8 +21,17 @@ from fastapi import Response
 # Mock config module before importing handlers
 sys.modules['config.config'] = MagicMock()
 
+# Mock blocklist and normalization helpers
+sys.modules['app.utils.blocklist_helpers'] = MagicMock()
+sys.modules['app.utils.validators'] = MagicMock()
+
 # Import the handler we're testing
 from app.handlers.SurveyMode import reply_survey
+
+# Patch the blocklist and normalization functions globally
+patch('app.handlers.SurveyMode.is_blocked_number', return_value=False).start()
+patch('app.handlers.SurveyMode.normalize_phone', side_effect=lambda x: x.replace("+", "").replace("-", "").replace(" ", "")).start()
+patch('app.handlers.SurveyMode.get_interaction_limit', return_value=1000).start()
 
 
 def get_recent_timestamp():
@@ -522,6 +531,7 @@ class TestSurveyModeSurveyQuestions(unittest.IsolatedAsyncioTestCase):
             'responses': {},
             'last_question_id': None
         }
+        mock_part_svc.get_interaction_count.return_value = 0
 
         # Execute
         result = await reply_survey(Body="Start survey", From="+1234567890")
@@ -563,6 +573,7 @@ class TestSurveyModeSurveyQuestions(unittest.IsolatedAsyncioTestCase):
             'responses': {},
             'last_question_id': 1  # User just answered question 1
         }
+        mock_part_svc.get_interaction_count.return_value = 0
 
         # Execute
         result = await reply_survey(Body="I think topic A is important", From="+1234567890")
@@ -607,6 +618,7 @@ class TestSurveyModeSurveyQuestions(unittest.IsolatedAsyncioTestCase):
             'responses': {'1': 'My answer'},
             'last_question_id': 1
         }
+        mock_part_svc.get_interaction_count.return_value = 0
 
         # Execute
         result = await reply_survey(Body="My final answer", From="+1234567890")
