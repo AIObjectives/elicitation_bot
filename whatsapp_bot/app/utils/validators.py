@@ -12,6 +12,10 @@ def normalize_event_path(event_id: str) -> str:
     """Ensure event_id always starts with 'AOI_' prefix."""
     return f"AOI_{event_id}" if not event_id.startswith("AOI_") else event_id
 
+def normalize_phone(phone: str) -> str:
+    """Normalize phone number by removing special characters."""
+    return phone.replace("+", "").replace("-", "").replace(" ", "")
+
 def _norm(s: str) -> str:
     """Collapse whitespace + lowercase to avoid trivial duplicates."""
     return " ".join((s or "").split()).strip().lower()
