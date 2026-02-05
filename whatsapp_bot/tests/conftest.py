@@ -11,6 +11,9 @@ import json
 import pytest
 from unittest.mock import Mock, MagicMock, patch
 
+# Configure pytest-asyncio
+pytest_plugins = ('pytest_asyncio',)
+
 # Mock Firebase credentials JSON
 mock_firebase_creds = json.dumps({
     "type": "service_account",
@@ -37,3 +40,77 @@ os.environ.setdefault('FIREBASE_CREDENTIALS_JSON', mock_firebase_creds)
 sys.modules['firebase_admin'] = MagicMock()
 sys.modules['firebase_admin.credentials'] = MagicMock()
 sys.modules['firebase_admin.firestore'] = MagicMock()
+
+
+@pytest.fixture(autouse=True)
+def mock_firebase():
+    """Mock Firebase Admin SDK to avoid actual database connections."""
+    with patch('firebase_admin.credentials') as mock_creds, \
+         patch('firebase_admin.firestore') as mock_firestore, \
+         patch('firebase_admin.initialize_app'):
+
+        # Mock Firestore client
+        mock_db = MagicMock()
+        mock_firestore.client.return_value = mock_db
+
+        yield mock_db
+
+
+@pytest.fixture(autouse=True)
+def mock_twilio():
+    """Mock Twilio client to avoid actual API calls."""
+    with patch('app.services.twilio_service.twilio_client') as mock_client:
+        mock_messages = MagicMock()
+        mock_client.messages = mock_messages
+        yield mock_client
+
+
+@pytest.fixture(autouse=True)
+def mock_openai():
+    """Mock OpenAI client to avoid actual API calls."""
+    with patch('openai.OpenAI') as mock_client_class:
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+        yield mock_client
+
+
+@pytest.fixture
+def sample_user_data():
+    """Provide sample user tracking data for tests."""
+    return {
+        'events': [],
+        'current_event_id': None,
+        'awaiting_event_id': False,
+        'awaiting_event_change_confirmation': False,
+        'last_inactivity_prompt': None,
+        'awaiting_extra_questions': False,
+        'current_extra_question_index': 0,
+        'invalid_attempts': 0
+    }
+
+
+@pytest.fixture
+def sample_event_info():
+    """Provide sample event info for tests."""
+    return {
+        'mode': 'followup',
+        'initial_message': 'Thank you for participating!',
+        'welcome_message': 'Welcome to our event!',
+        'completion_message': 'Thank you for completing the survey!',
+        'extra_questions': {},
+        'second_round_claims_source': {
+            'enabled': False
+        }
+    }
+
+
+@pytest.fixture
+def sample_participant_data():
+    """Provide sample participant data for tests."""
+    return {
+        'name': None,
+        'interactions': [],
+        'event_id': 'test_event',
+        'questions_asked': {},
+        'responses': {}
+    }
