@@ -648,7 +648,6 @@ class ParticipantService:
         transaction = db.transaction()
         return _process_transaction(transaction, doc_ref, user_msg, sr_reply, normalize_func)
 
-
 class ReportService:
     """Handles operations on report collections for second round deliberation."""
 

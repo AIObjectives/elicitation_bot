@@ -1,5 +1,5 @@
 from datetime import datetime
-from config.config import db
+from app.services.firestore_service import EventService, ParticipantService
 
 #Simplified function to generate bot instructions for follow-up mode
 # def generate_bot_instructions(event_id: str, normalized_phone: str) -> str:
@@ -67,12 +67,10 @@ def generate_bot_instructions(event_id, normalized_phone):
     Includes all follow-up questions in the instructions so the agent can pick one
     or come up with its own if none are relevant.
     """
-    # 1. Fetch event details from Firestore
-    event_info_ref = db.collection(f'AOI_{event_id}').document('info')
-    event_info_doc = event_info_ref.get()
+    # 1. Fetch event details from Firestore using EventService
+    event_info = EventService.get_event_info(event_id)
 
-    if event_info_doc.exists:
-        event_info = event_info_doc.to_dict()
+    if event_info:
         event_name = event_info.get('event_name', 'the event')
         event_location = event_info.get('event_location', 'the location')
         event_background = event_info.get('event_background', 'the background')
@@ -92,6 +90,7 @@ def generate_bot_instructions(event_id, normalized_phone):
         event_name = 'the event'
         event_location = 'the location'
         event_background = 'the background'
+        language_guidance = ''
         bot_topic = ''
         bot_aim = ''
         bot_principles = []
@@ -102,12 +101,10 @@ def generate_bot_instructions(event_id, normalized_phone):
         follow_up_enabled = False
         follow_up_list = []
 
-    # 2. Fetch past interactions for context
-    event_doc_ref = db.collection(f'AOI_{event_id}').document(normalized_phone)
-    event_doc = event_doc_ref.get()
-    if event_doc.exists:
-        user_data = event_doc.to_dict()
-        interactions = user_data.get('interactions', [])
+    # 2. Fetch past interactions for context using ParticipantService
+    participant_data = ParticipantService.get_participant(event_id, normalized_phone)
+    if participant_data:
+        interactions = participant_data.get('interactions', [])
         bot_questions = [interaction.get('response') for interaction in interactions if 'response' in interaction]
         user_messages = [interaction.get('message') for interaction in interactions if 'message' in interaction]
 
