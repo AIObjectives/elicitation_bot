@@ -27,3 +27,10 @@ env/
 *.egg-info/
 dist/
 build/
+
+# Test coverage reports
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
