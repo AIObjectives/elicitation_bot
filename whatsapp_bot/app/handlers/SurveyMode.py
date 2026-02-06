@@ -337,6 +337,22 @@ async def reply_survey(Body: str, From: str, MediaUrl0: str = None):
     last_qid = progress['last_question_id']
 
     if last_qid is not None:
+        # Handle audio transcription for voice responses
+        if MediaUrl0:
+            resp = requests.get(MediaUrl0, auth=HTTPBasicAuth(twilio_account_sid, twilio_auth_token))
+            ctype = resp.headers.get('Content-Type','')
+            if 'audio' in ctype:
+                audio_stream = io.BytesIO(resp.content)
+                audio_stream.name = 'file.ogg'
+                try:
+                    tr = client.audio.transcriptions.create(model="whisper-1", file=audio_stream)
+                    Body = tr.text
+                except Exception as e:
+                    logger.exception("Error during audio transcription in survey reply handler")
+                    return Response(status_code=500, content="An internal error occurred while processing the audio.")
+            else:
+                return Response(status_code=400, content="Unsupported media type.")
+
         responses[str(last_qid)] = Body
         interaction = {'message': Body}
         ParticipantService.update_participant(current_event_id, normalized_phone, {
