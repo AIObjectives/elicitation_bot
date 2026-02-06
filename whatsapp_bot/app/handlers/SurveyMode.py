@@ -348,7 +348,8 @@ async def reply_survey(Body: str, From: str, MediaUrl0: str = None):
                     tr = client.audio.transcriptions.create(model="whisper-1", file=audio_stream)
                     Body = tr.text
                 except Exception as e:
-                    return Response(status_code=500, content=str(e))
+                    logger.exception("Error during audio transcription in survey reply handler")
+                    return Response(status_code=500, content="An internal error occurred while processing the audio.")
             else:
                 return Response(status_code=400, content="Unsupported media type.")
 
