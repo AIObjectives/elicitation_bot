@@ -3,7 +3,7 @@ from app.handlers.dispatcher import dispatch_message
 
 app = FastAPI()
 
-@app.post("/message/")
+@app.post("/message")
 async def message_endpoint(
     Body: str = Form(...),
     From: str = Form(...),
