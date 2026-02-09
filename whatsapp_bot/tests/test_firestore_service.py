@@ -338,6 +338,203 @@ class TestParticipantService(unittest.TestCase):
         self.assertEqual(len(data['agreeable_claims']), 2)
         self.assertTrue(data['second_round_intro_done'])
 
+    @patch('app.services.firestore_service.db')
+    @patch('app.services.firestore_service.EventService.get_collection_name')
+    def test_get_all_participants(self, mock_get_collection_name, mock_db):
+        """Test streaming all participants for an event."""
+        event_id = 'test123'
+        collection_name = 'AOI_test123'
+        mock_get_collection_name.return_value = collection_name
+
+        # Mock participant documents
+        mock_doc1 = MagicMock()
+        mock_doc1.id = 'participant1'
+        mock_doc1.exists = True
+
+        mock_doc2 = MagicMock()
+        mock_doc2.id = 'participant2'
+        mock_doc2.exists = True
+
+        mock_collection = MagicMock()
+        mock_collection.stream.return_value = [mock_doc1, mock_doc2]
+        mock_db.collection.return_value = mock_collection
+
+        # Execute
+        result = ParticipantService.get_all_participants(event_id)
+        docs = list(result)
+
+        # Assertions
+        self.assertEqual(len(docs), 2)
+        self.assertEqual(docs[0].id, 'participant1')
+        self.assertEqual(docs[1].id, 'participant2')
+        mock_get_collection_name.assert_called_once_with(event_id)
+        mock_db.collection.assert_called_once_with(collection_name)
+        mock_collection.stream.assert_called_once()
+
+    @patch('app.services.firestore_service.db')
+    @patch('app.services.firestore_service.EventService.get_collection_name')
+    def test_get_specific_participants(self, mock_get_collection_name, mock_db):
+        """Test getting specific participants by ID."""
+        event_id = 'test123'
+        collection_name = 'AOI_test123'
+        participant_ids = ['participant1', 'participant2', 'participant3']
+        mock_get_collection_name.return_value = collection_name
+
+        # Mock participant documents
+        mock_docs = []
+        for i, pid in enumerate(participant_ids):
+            mock_doc = MagicMock()
+            mock_doc.id = pid
+            mock_doc.exists = True
+            mock_docs.append(mock_doc)
+
+        mock_doc_ref = MagicMock()
+        mock_doc_ref.get.side_effect = mock_docs
+
+        mock_collection = MagicMock()
+        mock_collection.document.return_value = mock_doc_ref
+        mock_db.collection.return_value = mock_collection
+
+        # Execute
+        result = ParticipantService.get_specific_participants(event_id, participant_ids)
+        docs = list(result)
+
+        # Assertions
+        self.assertEqual(len(docs), 3)
+        self.assertEqual(docs[0].id, 'participant1')
+        self.assertEqual(docs[1].id, 'participant2')
+        self.assertEqual(docs[2].id, 'participant3')
+        mock_get_collection_name.assert_called_once_with(event_id)
+        mock_db.collection.assert_called_once_with(collection_name)
+        self.assertEqual(mock_collection.document.call_count, 3)
+
+    @patch('app.services.firestore_service.db')
+    @patch('app.services.firestore_service.EventService.get_collection_name')
+    @patch('app.services.firestore_service.logger')
+    def test_batch_update_participants_small_batch(self, mock_logger, mock_get_collection_name, mock_db):
+        """Test batch updating participants with small batch (< 400)."""
+        event_id = 'test123'
+        collection_name = 'AOI_test123'
+        mock_get_collection_name.return_value = collection_name
+
+        # Prepare updates
+        updates = [
+            ('participant1', {'summary': 'Summary 1'}),
+            ('participant2', {'summary': 'Summary 2'}),
+            ('participant3', {'summary': 'Summary 3'}),
+        ]
+
+        # Mock collection and batch
+        mock_doc_ref = MagicMock()
+        mock_collection = MagicMock()
+        mock_collection.document.return_value = mock_doc_ref
+        mock_db.collection.return_value = mock_collection
+
+        mock_batch = MagicMock()
+        mock_db.batch.return_value = mock_batch
+
+        # Execute
+        result = ParticipantService.batch_update_participants(event_id, updates)
+
+        # Assertions
+        self.assertEqual(result, 3)
+        self.assertEqual(mock_batch.set.call_count, 3)
+        mock_batch.commit.assert_called_once()  # Only one commit for small batch
+        mock_logger.info.assert_called_once()
+
+    @patch('app.services.firestore_service.db')
+    @patch('app.services.firestore_service.EventService.get_collection_name')
+    @patch('app.services.firestore_service.logger')
+    def test_batch_update_participants_large_batch(self, mock_logger, mock_get_collection_name, mock_db):
+        """Test batch updating participants with large batch (> 400)."""
+        event_id = 'test123'
+        collection_name = 'AOI_test123'
+        mock_get_collection_name.return_value = collection_name
+
+        # Prepare 450 updates to test multiple commits
+        updates = [(f'participant{i}', {'summary': f'Summary {i}'}) for i in range(450)]
+
+        # Mock collection and batch
+        mock_doc_ref = MagicMock()
+        mock_collection = MagicMock()
+        mock_collection.document.return_value = mock_doc_ref
+        mock_db.collection.return_value = mock_collection
+
+        # Need two batches for 450 updates
+        mock_batch1 = MagicMock()
+        mock_batch2 = MagicMock()
+        mock_db.batch.side_effect = [mock_batch1, mock_batch2]
+
+        # Execute
+        result = ParticipantService.batch_update_participants(event_id, updates)
+
+        # Assertions
+        self.assertEqual(result, 450)
+        # First batch should have 400 sets, second should have 50
+        self.assertEqual(mock_batch1.set.call_count, 400)
+        self.assertEqual(mock_batch2.set.call_count, 50)
+        # Both batches should be committed
+        mock_batch1.commit.assert_called_once()
+        mock_batch2.commit.assert_called_once()
+
+    @patch('app.services.firestore_service.db')
+    @patch('app.services.firestore_service.EventService.get_collection_name')
+    @patch('app.services.firestore_service.logger')
+    def test_batch_update_participants_custom_batch_size(self, mock_logger, mock_get_collection_name, mock_db):
+        """Test batch updating with custom batch size."""
+        event_id = 'test123'
+        collection_name = 'AOI_test123'
+        mock_get_collection_name.return_value = collection_name
+
+        # Prepare 15 updates with batch size of 10
+        updates = [(f'participant{i}', {'summary': f'Summary {i}'}) for i in range(15)]
+
+        # Mock collection and batch
+        mock_doc_ref = MagicMock()
+        mock_collection = MagicMock()
+        mock_collection.document.return_value = mock_doc_ref
+        mock_db.collection.return_value = mock_collection
+
+        mock_batch1 = MagicMock()
+        mock_batch2 = MagicMock()
+        mock_db.batch.side_effect = [mock_batch1, mock_batch2]
+
+        # Execute with custom batch size
+        result = ParticipantService.batch_update_participants(event_id, updates, batch_size=10)
+
+        # Assertions
+        self.assertEqual(result, 15)
+        # First batch should have 10 sets, second should have 5
+        self.assertEqual(mock_batch1.set.call_count, 10)
+        self.assertEqual(mock_batch2.set.call_count, 5)
+        mock_batch1.commit.assert_called_once()
+        mock_batch2.commit.assert_called_once()
+
+    @patch('app.services.firestore_service.db')
+    @patch('app.services.firestore_service.EventService.get_collection_name')
+    @patch('app.services.firestore_service.logger')
+    def test_batch_update_participants_empty_updates(self, mock_logger, mock_get_collection_name, mock_db):
+        """Test batch updating with no updates."""
+        event_id = 'test123'
+        collection_name = 'AOI_test123'
+        mock_get_collection_name.return_value = collection_name
+
+        updates = []
+
+        # Mock collection and batch
+        mock_collection = MagicMock()
+        mock_db.collection.return_value = mock_collection
+
+        mock_batch = MagicMock()
+        mock_db.batch.return_value = mock_batch
+
+        # Execute
+        result = ParticipantService.batch_update_participants(event_id, updates)
+
+        # Assertions
+        self.assertEqual(result, 0)
+        mock_batch.set.assert_not_called()
+        mock_batch.commit.assert_not_called()
 
 
 class TestReportService(unittest.TestCase):
