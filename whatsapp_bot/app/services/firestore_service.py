@@ -648,6 +648,76 @@ class ParticipantService:
         transaction = db.transaction()
         return _process_transaction(transaction, doc_ref, user_msg, sr_reply, normalize_func)
 
+    @staticmethod
+    def get_all_participants(event_id: str):
+        """
+        Stream all participant documents for an event.
+
+        Args:
+            event_id: Event ID
+
+        Yields:
+            Document snapshots for all participants in the event
+        """
+        collection_name = EventService.get_collection_name(event_id)
+        return db.collection(collection_name).stream()
+
+    @staticmethod
+    def get_specific_participants(event_id: str, participant_ids: List[str]):
+        """
+        Get specific participant documents by their IDs.
+
+        Args:
+            event_id: Event ID
+            participant_ids: List of participant phone numbers
+
+        Yields:
+            Document snapshots for requested participants
+        """
+        collection_name = EventService.get_collection_name(event_id)
+        collection = db.collection(collection_name)
+        for participant_id in participant_ids:
+            yield collection.document(participant_id).get()
+
+    @staticmethod
+    def batch_update_participants(event_id: str, updates: List[tuple], batch_size: int = 400):
+        """
+        Batch update multiple participant documents efficiently.
+
+        This method handles Firestore's 500 write limit by committing every
+        `batch_size` writes (default 400 for safety margin).
+
+        Args:
+            event_id: Event ID
+            updates: List of tuples (participant_id, data_dict) to update
+            batch_size: Number of writes before committing (default 400)
+
+        Returns:
+            Number of documents updated
+        """
+        collection_name = EventService.get_collection_name(event_id)
+        collection = db.collection(collection_name)
+
+        batch = db.batch()
+        updated = 0
+
+        for participant_id, data in updates:
+            doc_ref = collection.document(participant_id)
+            batch.set(doc_ref, data, merge=True)
+            updated += 1
+
+            # Commit every batch_size writes to stay under Firestore limit
+            if updated % batch_size == 0:
+                batch.commit()
+                batch = db.batch()
+
+        # Commit remaining writes
+        if updated % batch_size != 0:
+            batch.commit()
+
+        logger.info(f"Batch updated {updated} participants for event {event_id}")
+        return updated
+
 
 class ReportService:
     """Handles operations on report collections for second round deliberation."""

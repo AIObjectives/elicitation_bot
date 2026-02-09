@@ -154,16 +154,11 @@ class TestSummarizeAndStore(unittest.TestCase):
     """Test cases for summarize_and_store function."""
 
     @patch('app.deliberation.summarizer.client')
-    @patch('app.deliberation.summarizer.db')
-    @patch('app.deliberation.summarizer.EventService')
+    @patch('app.deliberation.summarizer.ParticipantService')
     @patch('app.deliberation.summarizer.logger')
-    def test_summarize_and_store_success(self, mock_logger, mock_event_service, mock_db, mock_client):
+    def test_summarize_and_store_success(self, mock_logger, mock_participant_service, mock_client):
         """Test successful summarization and storage of participant data."""
         event_id = "test_event_123"
-        collection_name = "AOI_test_event_123"
-
-        # Mock EventService
-        mock_event_service.get_collection_name.return_value = collection_name
 
         # Mock participant documents
         mock_participant1 = MagicMock()
@@ -194,15 +189,9 @@ class TestSummarizeAndStore(unittest.TestCase):
         mock_info.id = "info"
         mock_info.to_dict.return_value = {'event_name': 'Test Event'}
 
-        # Mock collection stream
-        mock_collection = MagicMock()
-        mock_collection.stream.return_value = [mock_participant1, mock_participant2, mock_info]
-        mock_collection.document.return_value = MagicMock()
-        mock_db.collection.return_value = mock_collection
-
-        # Mock batch
-        mock_batch = MagicMock()
-        mock_db.batch.return_value = mock_batch
+        # Mock ParticipantService methods
+        mock_participant_service.get_all_participants.return_value = [mock_participant1, mock_participant2, mock_info]
+        mock_participant_service.batch_update_participants.return_value = 2
 
         # Mock OpenAI responses
         mock_response = MagicMock()
@@ -215,22 +204,22 @@ class TestSummarizeAndStore(unittest.TestCase):
 
         # Assertions
         self.assertEqual(result, 2)  # Two participants summarized
-        mock_event_service.get_collection_name.assert_called_once_with(event_id)
-        mock_db.collection.assert_called_once_with(collection_name)
-        self.assertEqual(mock_batch.set.call_count, 2)
-        mock_batch.commit.assert_called_once()  # Only once since < 400 updates
+        mock_participant_service.get_all_participants.assert_called_once_with(event_id)
+        mock_participant_service.batch_update_participants.assert_called_once()
+
+        # Verify the updates passed to batch_update_participants
+        call_args = mock_participant_service.batch_update_participants.call_args
+        updates = call_args[0][1]  # Second argument is the updates list
+        self.assertEqual(len(updates), 2)
+        self.assertEqual(updates[0][0], "participant1")
+        self.assertEqual(updates[1][0], "participant2")
 
     @patch('app.deliberation.summarizer.client')
-    @patch('app.deliberation.summarizer.db')
-    @patch('app.deliberation.summarizer.EventService')
+    @patch('app.deliberation.summarizer.ParticipantService')
     @patch('app.deliberation.summarizer.logger')
-    def test_summarize_and_store_skip_existing_summary(self, mock_logger, mock_event_service, mock_db, mock_client):
+    def test_summarize_and_store_skip_existing_summary(self, mock_logger, mock_participant_service, mock_client):
         """Test that participants with existing summaries are skipped."""
         event_id = "test_event_123"
-        collection_name = "AOI_test_event_123"
-
-        # Mock EventService
-        mock_event_service.get_collection_name.return_value = collection_name
 
         # Mock participant with existing summary
         mock_participant = MagicMock()
@@ -243,34 +232,23 @@ class TestSummarizeAndStore(unittest.TestCase):
             'summary': 'Already has a summary'
         }
 
-        # Mock collection stream
-        mock_collection = MagicMock()
-        mock_collection.stream.return_value = [mock_participant]
-        mock_db.collection.return_value = mock_collection
-
-        # Mock batch
-        mock_batch = MagicMock()
-        mock_db.batch.return_value = mock_batch
+        # Mock ParticipantService
+        mock_participant_service.get_all_participants.return_value = [mock_participant]
 
         # Execute
         result = summarize_and_store(event_id)
 
         # Assertions
         self.assertEqual(result, 0)  # No participants updated
-        mock_batch.set.assert_not_called()
+        mock_participant_service.batch_update_participants.assert_not_called()
         mock_client.chat.completions.create.assert_not_called()
 
     @patch('app.deliberation.summarizer.client')
-    @patch('app.deliberation.summarizer.db')
-    @patch('app.deliberation.summarizer.EventService')
+    @patch('app.deliberation.summarizer.ParticipantService')
     @patch('app.deliberation.summarizer.logger')
-    def test_summarize_and_store_skip_no_messages(self, mock_logger, mock_event_service, mock_db, mock_client):
+    def test_summarize_and_store_skip_no_messages(self, mock_logger, mock_participant_service, mock_client):
         """Test that participants with no messages are skipped."""
         event_id = "test_event_123"
-        collection_name = "AOI_test_event_123"
-
-        # Mock EventService
-        mock_event_service.get_collection_name.return_value = collection_name
 
         # Mock participant with no interactions
         mock_participant = MagicMock()
@@ -281,35 +259,24 @@ class TestSummarizeAndStore(unittest.TestCase):
             'summary': ''
         }
 
-        # Mock collection stream
-        mock_collection = MagicMock()
-        mock_collection.stream.return_value = [mock_participant]
-        mock_db.collection.return_value = mock_collection
-
-        # Mock batch
-        mock_batch = MagicMock()
-        mock_db.batch.return_value = mock_batch
+        # Mock ParticipantService
+        mock_participant_service.get_all_participants.return_value = [mock_participant]
 
         # Execute
         result = summarize_and_store(event_id)
 
         # Assertions
         self.assertEqual(result, 0)
-        mock_batch.set.assert_not_called()
+        mock_participant_service.batch_update_participants.assert_not_called()
         mock_client.chat.completions.create.assert_not_called()
 
     @patch('app.deliberation.summarizer.client')
-    @patch('app.deliberation.summarizer.db')
-    @patch('app.deliberation.summarizer.EventService')
+    @patch('app.deliberation.summarizer.ParticipantService')
     @patch('app.deliberation.summarizer.logger')
-    def test_summarize_and_store_only_for_specific_participants(self, mock_logger, mock_event_service, mock_db, mock_client):
+    def test_summarize_and_store_only_for_specific_participants(self, mock_logger, mock_participant_service, mock_client):
         """Test summarizing only specific participants."""
         event_id = "test_event_123"
-        collection_name = "AOI_test_event_123"
         only_for = ["participant1", "participant2"]
-
-        # Mock EventService
-        mock_event_service.get_collection_name.return_value = collection_name
 
         # Mock specific participant documents
         mock_participant1 = MagicMock()
@@ -328,16 +295,9 @@ class TestSummarizeAndStore(unittest.TestCase):
             'summary': ''
         }
 
-        # Mock collection
-        mock_collection = MagicMock()
-        mock_doc_ref = MagicMock()
-        mock_doc_ref.get.side_effect = [mock_participant1, mock_participant2]
-        mock_collection.document.side_effect = [mock_doc_ref, mock_doc_ref, MagicMock(), MagicMock()]
-        mock_db.collection.return_value = mock_collection
-
-        # Mock batch
-        mock_batch = MagicMock()
-        mock_db.batch.return_value = mock_batch
+        # Mock ParticipantService
+        mock_participant_service.get_specific_participants.return_value = [mock_participant1, mock_participant2]
+        mock_participant_service.batch_update_participants.return_value = 2
 
         # Mock OpenAI responses
         mock_response = MagicMock()
@@ -350,101 +310,36 @@ class TestSummarizeAndStore(unittest.TestCase):
 
         # Assertions
         self.assertEqual(result, 2)
-        self.assertEqual(mock_batch.set.call_count, 2)
+        mock_participant_service.get_specific_participants.assert_called_once_with(event_id, list(only_for))
+        mock_participant_service.batch_update_participants.assert_called_once()
 
     @patch('app.deliberation.summarizer.client')
-    @patch('app.deliberation.summarizer.db')
-    @patch('app.deliberation.summarizer.EventService')
+    @patch('app.deliberation.summarizer.ParticipantService')
     @patch('app.deliberation.summarizer.logger')
-    def test_summarize_and_store_batch_commit_every_400(self, mock_logger, mock_event_service, mock_db, mock_client):
-        """Test that batch commits happen every 400 updates."""
-        event_id = "test_event_123"
-        collection_name = "AOI_test_event_123"
-
-        # Mock EventService
-        mock_event_service.get_collection_name.return_value = collection_name
-
-        # Create 450 mock participants to test batch committing
-        mock_participants = []
-        for i in range(450):
-            mock_participant = MagicMock()
-            mock_participant.exists = True
-            mock_participant.id = f"participant{i}"
-            mock_participant.to_dict.return_value = {
-                'interactions': [{'message': f'Message {i}'}],
-                'summary': ''
-            }
-            mock_participants.append(mock_participant)
-
-        # Mock collection stream
-        mock_collection = MagicMock()
-        mock_collection.stream.return_value = mock_participants
-        mock_collection.document.return_value = MagicMock()
-        mock_db.collection.return_value = mock_collection
-
-        # Mock batch - need to return new batch on each call
-        mock_batch1 = MagicMock()
-        mock_batch2 = MagicMock()
-        mock_db.batch.side_effect = [mock_batch1, mock_batch2]
-
-        # Mock OpenAI responses
-        mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = "Summary"
-        mock_client.chat.completions.create.return_value = mock_response
-
-        # Execute
-        result = summarize_and_store(event_id)
-
-        # Assertions
-        self.assertEqual(result, 450)
-        # First batch should commit at 400, second batch should commit at end
-        self.assertEqual(mock_batch1.commit.call_count, 1)
-        self.assertEqual(mock_batch2.commit.call_count, 1)
-
-    @patch('app.deliberation.summarizer.client')
-    @patch('app.deliberation.summarizer.db')
-    @patch('app.deliberation.summarizer.EventService')
-    @patch('app.deliberation.summarizer.logger')
-    def test_summarize_and_store_skip_nonexistent_docs(self, mock_logger, mock_event_service, mock_db, mock_client):
+    def test_summarize_and_store_skip_nonexistent_docs(self, mock_logger, mock_participant_service, mock_client):
         """Test that non-existent documents are skipped."""
         event_id = "test_event_123"
-        collection_name = "AOI_test_event_123"
-
-        # Mock EventService
-        mock_event_service.get_collection_name.return_value = collection_name
 
         # Mock non-existent document
         mock_participant = MagicMock()
         mock_participant.exists = False
 
-        # Mock collection stream
-        mock_collection = MagicMock()
-        mock_collection.stream.return_value = [mock_participant]
-        mock_db.collection.return_value = mock_collection
-
-        # Mock batch
-        mock_batch = MagicMock()
-        mock_db.batch.return_value = mock_batch
+        # Mock ParticipantService
+        mock_participant_service.get_all_participants.return_value = [mock_participant]
 
         # Execute
         result = summarize_and_store(event_id)
 
         # Assertions
         self.assertEqual(result, 0)
-        mock_batch.set.assert_not_called()
+        mock_participant_service.batch_update_participants.assert_not_called()
 
     @patch('app.deliberation.summarizer.client')
-    @patch('app.deliberation.summarizer.db')
-    @patch('app.deliberation.summarizer.EventService')
+    @patch('app.deliberation.summarizer.ParticipantService')
     @patch('app.deliberation.summarizer.logger')
-    def test_summarize_and_store_filter_invalid_interactions(self, mock_logger, mock_event_service, mock_db, mock_client):
+    def test_summarize_and_store_filter_invalid_interactions(self, mock_logger, mock_participant_service, mock_client):
         """Test that invalid interactions are filtered out."""
         event_id = "test_event_123"
-        collection_name = "AOI_test_event_123"
-
-        # Mock EventService
-        mock_event_service.get_collection_name.return_value = collection_name
 
         # Mock participant with mixed valid/invalid interactions
         mock_participant = MagicMock()
@@ -461,15 +356,9 @@ class TestSummarizeAndStore(unittest.TestCase):
             'summary': ''
         }
 
-        # Mock collection stream
-        mock_collection = MagicMock()
-        mock_collection.stream.return_value = [mock_participant]
-        mock_collection.document.return_value = MagicMock()
-        mock_db.collection.return_value = mock_collection
-
-        # Mock batch
-        mock_batch = MagicMock()
-        mock_db.batch.return_value = mock_batch
+        # Mock ParticipantService
+        mock_participant_service.get_all_participants.return_value = [mock_participant]
+        mock_participant_service.batch_update_participants.return_value = 1
 
         # Mock OpenAI responses
         mock_response = MagicMock()
@@ -491,16 +380,11 @@ class TestSummarizeAndStore(unittest.TestCase):
         self.assertNotIn('not a dict', user_message)
 
     @patch('app.deliberation.summarizer.client')
-    @patch('app.deliberation.summarizer.db')
-    @patch('app.deliberation.summarizer.EventService')
+    @patch('app.deliberation.summarizer.ParticipantService')
     @patch('app.deliberation.summarizer.logger')
-    def test_summarize_and_store_handles_none_dict(self, mock_logger, mock_event_service, mock_db, mock_client):
+    def test_summarize_and_store_handles_none_dict(self, mock_logger, mock_participant_service, mock_client):
         """Test handling of None participant data."""
         event_id = "test_event_123"
-        collection_name = "AOI_test_event_123"
-
-        # Mock EventService
-        mock_event_service.get_collection_name.return_value = collection_name
 
         # Mock participant with None dict
         mock_participant = MagicMock()
@@ -508,33 +392,22 @@ class TestSummarizeAndStore(unittest.TestCase):
         mock_participant.id = "participant1"
         mock_participant.to_dict.return_value = None
 
-        # Mock collection stream
-        mock_collection = MagicMock()
-        mock_collection.stream.return_value = [mock_participant]
-        mock_db.collection.return_value = mock_collection
-
-        # Mock batch
-        mock_batch = MagicMock()
-        mock_db.batch.return_value = mock_batch
+        # Mock ParticipantService
+        mock_participant_service.get_all_participants.return_value = [mock_participant]
 
         # Execute
         result = summarize_and_store(event_id)
 
         # Assertions
         self.assertEqual(result, 0)
-        mock_batch.set.assert_not_called()
+        mock_participant_service.batch_update_participants.assert_not_called()
 
     @patch('app.deliberation.summarizer.client')
-    @patch('app.deliberation.summarizer.db')
-    @patch('app.deliberation.summarizer.EventService')
+    @patch('app.deliberation.summarizer.ParticipantService')
     @patch('app.deliberation.summarizer.logger')
-    def test_summarize_and_store_handles_none_interactions(self, mock_logger, mock_event_service, mock_db, mock_client):
+    def test_summarize_and_store_handles_none_interactions(self, mock_logger, mock_participant_service, mock_client):
         """Test handling of None interactions list."""
         event_id = "test_event_123"
-        collection_name = "AOI_test_event_123"
-
-        # Mock EventService
-        mock_event_service.get_collection_name.return_value = collection_name
 
         # Mock participant with None interactions
         mock_participant = MagicMock()
@@ -545,21 +418,15 @@ class TestSummarizeAndStore(unittest.TestCase):
             'summary': ''
         }
 
-        # Mock collection stream
-        mock_collection = MagicMock()
-        mock_collection.stream.return_value = [mock_participant]
-        mock_db.collection.return_value = mock_collection
-
-        # Mock batch
-        mock_batch = MagicMock()
-        mock_db.batch.return_value = mock_batch
+        # Mock ParticipantService
+        mock_participant_service.get_all_participants.return_value = [mock_participant]
 
         # Execute
         result = summarize_and_store(event_id)
 
         # Assertions
         self.assertEqual(result, 0)
-        mock_batch.set.assert_not_called()
+        mock_participant_service.batch_update_participants.assert_not_called()
 
 
 if __name__ == '__main__':

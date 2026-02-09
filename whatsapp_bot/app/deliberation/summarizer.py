@@ -1,6 +1,6 @@
 from typing import Iterable, Optional, List
-from config.config import logger, client, db
-from app.services.firestore_service import EventService
+from config.config import logger, client
+from app.services.firestore_service import ParticipantService
 
 def _summarize_user_messages(messages: List[str]) -> str:
     if not messages:
@@ -27,14 +27,26 @@ def _summarize_user_messages(messages: List[str]) -> str:
         return "⚠️ Error generating summary."
 
 def summarize_and_store(event_id: str, only_for: Optional[Iterable[str]] = None) -> int:
-    collection_name = EventService.get_collection_name(event_id)
-    coll = db.collection(collection_name)
+    """
+    Summarize user messages and store summaries in Firestore.
 
-    docs = coll.stream() if not only_for else [coll.document(p).get() for p in only_for]
-    batch = db.batch()
-    updated = 0
+    Args:
+        event_id: Event ID to process
+        only_for: Optional list of participant IDs to process (processes all if None)
 
-    for i, snap in enumerate(docs):
+    Returns:
+        Number of participants updated with summaries
+    """
+    # Get participant documents using repository pattern
+    if only_for:
+        docs = ParticipantService.get_specific_participants(event_id, list(only_for))
+    else:
+        docs = ParticipantService.get_all_participants(event_id)
+
+    # Prepare batch updates
+    updates = []
+
+    for snap in docs:
         if not snap.exists or snap.id == "info":
             continue
         data = snap.to_dict() or {}
@@ -48,18 +60,13 @@ def summarize_and_store(event_id: str, only_for: Optional[Iterable[str]] = None)
 
         logger.info(f"[summarizer] {snap.id}: {len(msgs)} msgs → summary")
         summary = _summarize_user_messages(msgs)
-        doc_ref = coll.document(snap.id)
-        batch.set(doc_ref, {"summary": summary}, merge=True)
-        updated += 1
+        updates.append((snap.id, {"summary": summary}))
 
-        # Commit every 400–500 writes to stay under Firestore limit
-        if updated % 400 == 0:
-            batch.commit()
-            batch = db.batch()
+    # Use repository pattern for batch updates
+    if updates:
+        updated = ParticipantService.batch_update_participants(event_id, updates)
+        logger.info(f"[summarizer] updated={updated} event={event_id}")
+        return updated
 
-
-    if updated % 400 != 0:
-        batch.commit()
-
-    logger.info(f"[summarizer] updated={updated} event={event_id}")
-    return updated
+    logger.info(f"[summarizer] updated=0 event={event_id}")
+    return 0
