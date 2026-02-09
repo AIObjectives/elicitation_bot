@@ -37,13 +37,11 @@ def summarize_and_store(event_id: str, only_for: Optional[Iterable[str]] = None)
     Returns:
         Number of participants updated with summaries
     """
-    # Get participant documents using repository pattern
     if only_for:
         docs = ParticipantService.get_specific_participants(event_id, list(only_for))
     else:
         docs = ParticipantService.get_all_participants(event_id)
 
-    # Prepare batch updates
     updates = []
 
     for snap in docs:
@@ -62,7 +60,6 @@ def summarize_and_store(event_id: str, only_for: Optional[Iterable[str]] = None)
         summary = _summarize_user_messages(msgs)
         updates.append((snap.id, {"summary": summary}))
 
-    # Use repository pattern for batch updates
     if updates:
         updated = ParticipantService.batch_update_participants(event_id, updates)
         logger.info(f"[summarizer] updated={updated} event={event_id}")
