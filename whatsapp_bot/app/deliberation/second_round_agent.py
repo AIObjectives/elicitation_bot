@@ -1,55 +1,46 @@
 from typing import Dict, Any, List, Optional, Tuple
-from config.config import db, logger, client
+from config.config import logger, client
 from app.deliberation.summarizer import summarize_and_store
 from app.deliberation.find_perspectives import select_and_store_for_event
-from app.utils.validators import normalize_event_path
+from app.services.firestore_service import (
+    EventService,
+    ParticipantService,
+    ReportService
+)
 
 def _fetch_report_metadata(event_id: str) -> Dict[str, Any]:
-    path = normalize_event_path(event_id)
-    info = db.collection(path).document("info").get()
-    if not info.exists:
-        return {}
-    src = (info.to_dict() or {}).get("second_round_claims_source", {}) or {}
-    col, doc = src.get("collection"), src.get("document")
-    if not col or not doc:
-        return {}
-    rep = db.collection(col).document(doc).get()
-    return (rep.to_dict() or {}).get("metadata", {}) if rep.exists else {}
+    return ReportService.get_report_metadata(event_id)
 
 def _fetch_dynamic_prompt(event_id: str) -> Dict[str, str]:
     """
     Fetches custom system and user prompt templates from Firestore if defined under AOI_event_id/info.
     Returns a dict with 'system_prompt' and 'user_prompt' keys; falls back to defaults if missing.
     """
-    
-    path = normalize_event_path(event_id)
-    info = db.collection(path).document("info").get()
-    if not info.exists:
-        return {}
-    d = info.to_dict() or {}
-    prompts = d.get("second_round_prompts", {}) or {}
-    return {
-        "system_prompt": prompts.get("system_prompt", ""),
-        "user_prompt": prompts.get("user_prompt", "")
-    }
+    return EventService.get_second_round_prompts(event_id)
 
 
 def _get_user_context(event_id: str, phone: str, history_k: int = 6):
-    path = normalize_event_path(event_id)
-    snap = db.collection(path).document(phone).get()
-    if not snap.exists:
-        return None
-    d = snap.to_dict() or {}
-    summary   = d.get("summary")
-    agreeable = d.get("agreeable_claims", []) or []
-    opposing  = d.get("opposing_claims", []) or []
-    reason    = d.get("claim_selection_reason")
-    intro_done= bool(d.get("second_round_intro_done", False))
-    raw = d.get("second_round_interactions", []) or []
+    data = ParticipantService.get_second_round_data(event_id, phone)
+    if not data.get('summary') and not data.get('agreeable_claims') and not data.get('opposing_claims'):
+        # If no second round data exists, return None
+        participant = ParticipantService.get_participant(event_id, phone)
+        if not participant:
+            return None
+
+    summary = data['summary']
+    agreeable = data['agreeable_claims']
+    opposing = data['opposing_claims']
+    reason = data['claim_selection_reason']
+    intro_done = data['second_round_intro_done']
+    raw = data['second_round_interactions']
+
     turns = []
     for it in raw:
-        if "message" in it:    turns.append({"role": "user", "text": str(it["message"])})
-        elif "response" in it: turns.append({"role": "assistant", "text": str(it["response"])})
+        if "message" in it:
+            turns.append({"role": "user", "text": str(it["message"])})
+        elif "response" in it:
+            turns.append({"role": "assistant", "text": str(it["response"])})
+
     return summary, agreeable, opposing, reason, turns[-history_k:], intro_done
 
 def _build_reply(user_msg,event_id: str, summary, agreeable, opposing, metadata, reason, recent_turns, intro_done) -> Optional[str]:
@@ -142,9 +133,8 @@ def run_second_round_for_user(event_id: str, phone_number: str, user_msg: Option
         if not summary or (not agreeable and not opposing):
             if after_warm:
                 return None
-            normalized_id = normalize_event_path(event_id)
-            summarize_and_store(normalized_id, only_for=[phone_number])
-            select_and_store_for_event(normalized_id, only_for=[phone_number])
+            summarize_and_store(event_id, only_for=[phone_number])
+            select_and_store_for_event(event_id, only_for=[phone_number])
             return _attempt(after_warm=True)
         return _build_reply(user_msg, event_id, summary, agreeable, opposing, meta, reason, turns, intro_done)
 
@@ -153,8 +143,6 @@ def run_second_round_for_user(event_id: str, phone_number: str, user_msg: Option
         logger.warning(f"[2nd-round] No reply generated for user {phone_number} in event {event_id}.")
         return None
 
-
-    path = normalize_event_path(event_id)
-    db.collection(path).document(phone_number).set({"second_round_intro_done": True}, merge=True)
+    ParticipantService.update_participant(event_id, phone_number, {"second_round_intro_done": True})
     return reply
 
