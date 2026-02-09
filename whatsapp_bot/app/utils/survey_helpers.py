@@ -1,5 +1,4 @@
-from config.config import db
-from datetime import datetime
+from app.services.firestore_service import EventService, ParticipantService
 
 def initialize_user_document(event_id: str, normalized_phone: str) -> dict:
     """
@@ -11,15 +10,15 @@ def initialize_user_document(event_id: str, normalized_phone: str) -> dict:
       - last_question_id: None
       - survey_complete: False
     """
-    info_ref = db.collection(f"AOI_{event_id}").document("info")
-    info_doc = info_ref.get()
-    if not info_doc.exists:
+    # Get event info and questions using EventService
+    event_info = EventService.get_event_info(event_id)
+    if not event_info:
         raise ValueError(f"No event info for {event_id}")
 
-    questions = info_doc.to_dict().get("questions", [])
+    questions = EventService.get_survey_questions(event_id)
     questions_asked = { str(q["id"]): False for q in questions }
 
-    user_ref = db.collection(f"AOI_{event_id}").document(normalized_phone)
+    # Prepare survey-specific participant data
     payload = {
         "interactions": [],
         "name": None,
@@ -28,5 +27,11 @@ def initialize_user_document(event_id: str, normalized_phone: str) -> dict:
         "last_question_id": None,
         "survey_complete": False
     }
-    user_ref.set(payload, merge=True)
+
+    # Initialize participant using ParticipantService
+    # First ensure basic participant document exists
+    ParticipantService.initialize_participant(event_id, normalized_phone)
+    # Then update with survey-specific fields (merge=True behavior)
+    ParticipantService.update_participant(event_id, normalized_phone, payload)
+
     return payload
