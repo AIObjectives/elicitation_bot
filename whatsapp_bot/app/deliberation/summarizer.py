@@ -1,6 +1,6 @@
 from typing import Iterable, Optional, List
-from config.config import db, logger, client
-from app.utils.validators import normalize_event_path
+from config.config import logger, client, db
+from app.services.firestore_service import EventService
 
 def _summarize_user_messages(messages: List[str]) -> str:
     if not messages:
@@ -27,7 +27,8 @@ def _summarize_user_messages(messages: List[str]) -> str:
         return "⚠️ Error generating summary."
 
 def summarize_and_store(event_id: str, only_for: Optional[Iterable[str]] = None) -> int:
-    coll = db.collection(normalize_event_path(event_id))
+    collection_name = EventService.get_collection_name(event_id)
+    coll = db.collection(collection_name)
 
     docs = coll.stream() if not only_for else [coll.document(p).get() for p in only_for]
     batch = db.batch()
