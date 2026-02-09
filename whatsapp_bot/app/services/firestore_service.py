@@ -747,6 +747,132 @@ class ReportService:
         data = doc.to_dict() or {}
         return data.get('metadata', {})
 
+    @staticmethod
+    def get_claim_source_reference(event_id: str) -> Tuple[str, str]:
+        """
+        Get the collection and document path for claim source from event config.
+
+        Args:
+            event_id: Event ID
+
+        Returns:
+            Tuple of (collection_name, document_id)
+
+        Raises:
+            RuntimeError: If event info doesn't exist or claim source config is missing
+        """
+        info = EventService.get_event_info(event_id)
+        if not info:
+            path = EventService.get_collection_name(event_id)
+            raise RuntimeError(f"No 'info' in {path}")
+
+        src = info.get("second_round_claims_source", {}) or {}
+        col, doc = src.get("collection"), src.get("document")
+        if not col or not doc:
+            raise RuntimeError("Missing collection/document in second_round_claims_source")
+        return col, doc
+
+    @staticmethod
+    def fetch_all_claim_texts(collection: str, document: str) -> List[str]:
+        """
+        Fetch all claim texts from a specified collection/document.
+
+        Args:
+            collection: Collection name
+            document: Document ID
+
+        Returns:
+            List of claim text strings
+        """
+        snap = db.collection(collection).document(document).get()
+        if not snap.exists:
+            return []
+
+        claims = (snap.to_dict() or {}).get("claims", []) or []
+        out = []
+        for c in claims:
+            t = (c or {}).get("text", "")
+            if isinstance(t, str) and t.strip():
+                out.append(t.strip())
+        return out
+
+    @staticmethod
+    def get_participant_summary(event_id: str, normalized_phone: str) -> Optional[str]:
+        """
+        Get participant's summary field.
+
+        Args:
+            event_id: Event ID
+            normalized_phone: Normalized phone number
+
+        Returns:
+            Summary string or None
+        """
+        data = ParticipantService.get_participant(event_id, normalized_phone)
+        if not data:
+            return None
+        return (data.get("summary") or "").strip() or None
+
+    @staticmethod
+    def set_perspective_claims(event_id: str, normalized_phone: str,
+                              agreeable: List[str], opposing: List[str],
+                              reason: str) -> None:
+        """
+        Set agreeable_claims, opposing_claims, and claim_selection_reason for a participant.
+
+        Args:
+            event_id: Event ID
+            normalized_phone: Normalized phone number
+            agreeable: List of agreeable claim strings
+            opposing: List of opposing claim strings
+            reason: Reason for claim selection
+        """
+        ParticipantService.update_participant(event_id, normalized_phone, {
+            "agreeable_claims": agreeable,
+            "opposing_claims": opposing,
+            "claim_selection_reason": reason
+        })
+
+    @staticmethod
+    def has_perspective_claims(event_id: str, normalized_phone: str) -> bool:
+        """
+        Check if participant already has perspective claims set.
+
+        Args:
+            event_id: Event ID
+            normalized_phone: Normalized phone number
+
+        Returns:
+            True if agreeable_claims or opposing_claims exist
+        """
+        data = ParticipantService.get_participant(event_id, normalized_phone)
+        if not data:
+            return False
+        return bool(data.get("agreeable_claims") or data.get("opposing_claims"))
+
+    @staticmethod
+    def stream_event_participants(event_id: str, only_for: Optional[List[str]] = None):
+        """
+        Stream all participant documents from an event, optionally filtered by phone numbers.
+
+        Args:
+            event_id: Event ID
+            only_for: Optional list of normalized phone numbers to fetch
+
+        Yields:
+            DocumentSnapshot for each participant
+        """
+        collection_name = EventService.get_collection_name(event_id)
+        coll = db.collection(collection_name)
+
+        if not only_for:
+            yield from coll.stream()
+        else:
+            for phone in only_for:
+                snap = coll.document(phone).get()
+                if snap.exists:
+                    yield snap
+
 
 # Convenience functions for backward compatibility
 def get_or_create_user(normalized_phone: str) -> Tuple[Any, Dict[str, Any]]:
