@@ -445,9 +445,17 @@ class ParticipantService:
         docs = list(query.stream())
 
         if not docs:
-            # Create new participant with UUID
-            from uuid import uuid4
-            participant_uuid = str(uuid4())
+            # Get user's UUID from user_event_tracking
+            user_data = UserTrackingService.get_user(normalized_phone)
+            if not user_data:
+                # User should exist by now, but create if missing
+                _, user_data = UserTrackingService.get_or_create_user(normalized_phone)
+
+            participant_uuid = user_data.get('user_id')
+            if not participant_uuid:
+                # Fallback in case user_id is missing (shouldn't happen with new schema)
+                participant_uuid = str(uuid4())
+                logger.warning(f"user_id missing for {normalized_phone}, generating new UUID: {participant_uuid}")
 
             doc_ref = (db.collection('elicitation_bot_events')
                       .document(event_id)
@@ -739,23 +747,26 @@ class ParticipantService:
         Yields:
             Document snapshots for all participants in the event
         """
-        collection_name = EventService.get_collection_name(event_id)
-        return db.collection(collection_name).stream()
+        return (db.collection('elicitation_bot_events')
+               .document(event_id)
+               .collection('participants')
+               .stream())
 
     @staticmethod
     def get_specific_participants(event_id: str, participant_ids: List[str]):
         """
-        Get specific participant documents by their IDs.
+        Get specific participant documents by their UUIDs.
 
         Args:
             event_id: Event ID
-            participant_ids: List of participant phone numbers
+            participant_ids: List of participant UUIDs
 
         Yields:
             Document snapshots for requested participants
         """
-        collection_name = EventService.get_collection_name(event_id)
-        collection = db.collection(collection_name)
+        collection = (db.collection('elicitation_bot_events')
+                     .document(event_id)
+                     .collection('participants'))
         for participant_id in participant_ids:
             yield collection.document(participant_id).get()
 
@@ -769,20 +780,21 @@ class ParticipantService:
 
         Args:
             event_id: Event ID
-            updates: List of tuples (participant_id, data_dict) to update
+            updates: List of tuples (participant_uuid, data_dict) to update
             batch_size: Number of writes before committing (default 400)
 
         Returns:
             Number of documents updated
         """
-        collection_name = EventService.get_collection_name(event_id)
-        collection = db.collection(collection_name)
+        collection = (db.collection('elicitation_bot_events')
+                     .document(event_id)
+                     .collection('participants'))
 
         batch = db.batch()
         updated = 0
 
-        for participant_id, data in updates:
-            doc_ref = collection.document(participant_id)
+        for participant_uuid, data in updates:
+            doc_ref = collection.document(participant_uuid)
             batch.set(doc_ref, data, merge=True)
             updated += 1
 
@@ -942,16 +954,19 @@ class ReportService:
         Yields:
             DocumentSnapshot for each participant
         """
-        collection_name = EventService.get_collection_name(event_id)
-        coll = db.collection(collection_name)
+        coll = (db.collection('elicitation_bot_events')
+               .document(event_id)
+               .collection('participants'))
 
         if not only_for:
             yield from coll.stream()
         else:
+            # Query by phone field for each phone number
             for phone in only_for:
-                snap = coll.document(phone).get()
-                if snap.exists:
-                    yield snap
+                query = coll.where('phone', '==', phone).limit(1)
+                docs = list(query.stream())
+                if docs:
+                    yield docs[0]
 
 
 # Convenience functions for backward compatibility
