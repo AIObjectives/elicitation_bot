@@ -176,7 +176,7 @@ class EventService:
     @staticmethod
     def get_collection_name(event_id: str) -> str:
         """
-        Get the collection name for events.
+        Get the collection name for events (new schema).
 
         Args:
             event_id: Event ID (unused, kept for backward compatibility)
@@ -203,7 +203,7 @@ class EventService:
     @staticmethod
     def event_exists(event_id: str) -> bool:
         """
-        Check if an event exists by checking the event document.
+        Check if an event exists (new schema - no 'info' subdocument).
 
         Args:
             event_id: Event ID to check
@@ -219,7 +219,7 @@ class EventService:
     @staticmethod
     def get_event_info(event_id: str) -> Optional[Dict[str, Any]]:
         """
-        Get event information from the event document.
+        Get event information (new schema - event document IS the info).
 
         Args:
             event_id: Event ID
