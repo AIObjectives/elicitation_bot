@@ -8,6 +8,7 @@ for user tracking, event management, and participant data.
 
 from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime
+from uuid import uuid4
 from firebase_admin import firestore
 
 from config.config import db, logger
@@ -29,14 +30,21 @@ class UserTrackingService:
         Returns:
             Tuple of (document_reference, user_data_dict)
         """
-        doc_ref = db.collection(UserTrackingService.COLLECTION_NAME).document(normalized_phone)
-        doc = doc_ref.get()
+        # Query by phone field instead of using phone as document ID
+        query = db.collection(UserTrackingService.COLLECTION_NAME).where('phone', '==', normalized_phone).limit(1)
+        docs = list(query.stream())
 
-        if doc.exists:
-            return doc_ref, doc.to_dict()
+        if docs:
+            doc = docs[0]
+            return doc.reference, doc.to_dict()
 
-        # Initialize new user with default structure
+        # Initialize new user with UUID
+        user_uuid = str(uuid4())
+        doc_ref = db.collection(UserTrackingService.COLLECTION_NAME).document(user_uuid)
+
         data = {
+            'phone': normalized_phone,
+            'user_id': user_uuid,
             'events': [],
             'current_event_id': None,
             'awaiting_event_id': False,
@@ -47,7 +55,7 @@ class UserTrackingService:
             'invalid_attempts': 0
         }
         doc_ref.set(data)
-        logger.info(f"Created new user tracking document for {normalized_phone}")
+        logger.info(f"Created new user tracking document for {normalized_phone} with UUID {user_uuid}")
         return doc_ref, data
 
     @staticmethod
@@ -61,8 +69,9 @@ class UserTrackingService:
         Returns:
             User data dict or None if not found
         """
-        doc = db.collection(UserTrackingService.COLLECTION_NAME).document(normalized_phone).get()
-        return doc.to_dict() if doc.exists else None
+        query = db.collection(UserTrackingService.COLLECTION_NAME).where('phone', '==', normalized_phone).limit(1)
+        docs = list(query.stream())
+        return docs[0].to_dict() if docs else None
 
     @staticmethod
     def update_user(normalized_phone: str, data: Dict[str, Any]) -> None:
@@ -73,8 +82,15 @@ class UserTrackingService:
             normalized_phone: Normalized phone number
             data: Fields to update
         """
-        db.collection(UserTrackingService.COLLECTION_NAME).document(normalized_phone).update(data)
-        logger.debug(f"Updated user {normalized_phone} with fields: {list(data.keys())}")
+        # Find user by phone, then update
+        query = db.collection(UserTrackingService.COLLECTION_NAME).where('phone', '==', normalized_phone).limit(1)
+        docs = list(query.stream())
+
+        if docs:
+            docs[0].reference.update(data)
+            logger.debug(f"Updated user {normalized_phone} with fields: {list(data.keys())}")
+        else:
+            logger.warning(f"Could not find user {normalized_phone} to update")
 
     @staticmethod
     def update_user_events(normalized_phone: str, events: List[Dict[str, Any]]) -> None:
@@ -85,9 +101,11 @@ class UserTrackingService:
             normalized_phone: Normalized phone number
             events: List of event dictionaries with event_id and timestamp
         """
-        db.collection(UserTrackingService.COLLECTION_NAME).document(normalized_phone).update({
-            'events': events
-        })
+        query = db.collection(UserTrackingService.COLLECTION_NAME).where('phone', '==', normalized_phone).limit(1)
+        docs = list(query.stream())
+
+        if docs:
+            docs[0].reference.update({'events': events})
 
     @staticmethod
     def deduplicate_events(events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
