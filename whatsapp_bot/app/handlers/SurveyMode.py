@@ -34,7 +34,7 @@ from app.services.firestore_service import (
     ParticipantService
 )
 from app.utils.survey_helpers import initialize_user_document
-from app.utils.validators import normalize_event_path, normalize_phone
+from app.utils.validators import normalize_phone
 from app.utils.blocklist_helpers import get_interaction_limit, is_blocked_number
 
 

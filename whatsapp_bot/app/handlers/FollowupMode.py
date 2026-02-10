@@ -31,7 +31,7 @@ from app.services.firestore_service import (
 from app.utils.followup_helpers import generate_bot_instructions
 
 from app.deliberation.second_round_agent import run_second_round_for_user
-from app.utils.validators import _norm, normalize_event_path, normalize_phone
+from app.utils.validators import _norm, normalize_phone
 
 from app.utils.blocklist_helpers import is_blocked_number, get_interaction_limit
 
@@ -519,8 +519,18 @@ async def reply_followup(Body: str, From: str, MediaUrl0: str = None):
 # 2ND-ROUND DELIBERATION PATH
 # ----------------------------
     if current_event_id and EventService.is_second_round_enabled(current_event_id):
-        sr_coll = db.collection(normalize_event_path(current_event_id))
-        sr_doc_ref = sr_coll.document(normalized_phone)
+        # Get participant by phone (new schema uses UUID as doc ID)
+        participant = ParticipantService.get_participant(current_event_id, normalized_phone)
+        if not participant:
+            # Shouldn't happen, but handle gracefully
+            logger.warning(f"Participant {normalized_phone} not found for event {current_event_id}")
+            return Response(status_code=200)
+
+        participant_uuid = participant.get('participant_id')
+        sr_doc_ref = (db.collection('elicitation_bot_events')
+                       .document(current_event_id)
+                       .collection('participants')
+                       .document(participant_uuid))
 
         @firestore.transactional
         def process_second_round(transaction, ref, user_msg, sr_reply=None):
