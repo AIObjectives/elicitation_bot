@@ -31,19 +31,25 @@ class TestUserTrackingService(unittest.TestCase):
         expected_data = {
             'events': [{'event_id': 'test123', 'timestamp': '2024-01-01T00:00:00'}],
             'current_event_id': 'test123',
-            'awaiting_event_id': False
+            'awaiting_event_id': False,
+            'phone': normalized_phone
         }
 
-        # Mock Firestore document
-        mock_doc = MagicMock()
-        mock_doc.exists = True
-        mock_doc.to_dict.return_value = expected_data
+        # Mock query result document
+        mock_doc_snapshot = MagicMock()
+        mock_doc_snapshot.reference = MagicMock()
+        mock_doc_snapshot.to_dict.return_value = expected_data
 
-        mock_doc_ref = MagicMock()
-        mock_doc_ref.get.return_value = mock_doc
+        # Mock query that returns list of documents
+        mock_query = MagicMock()
+        mock_query.stream.return_value = [mock_doc_snapshot]
+
+        # Mock the where().limit() chain
+        mock_where = MagicMock()
+        mock_where.limit.return_value = mock_query
 
         mock_collection = MagicMock()
-        mock_collection.document.return_value = mock_doc_ref
+        mock_collection.where.return_value = mock_where
         mock_db.collection.return_value = mock_collection
 
         # Execute
@@ -51,9 +57,8 @@ class TestUserTrackingService(unittest.TestCase):
 
         # Assert
         self.assertEqual(user_data, expected_data)
-        mock_db.collection.assert_called_once_with('user_event_tracking')
-        mock_collection.document.assert_called_once_with(normalized_phone)
-        mock_doc_ref.set.assert_not_called()  # Should not create new doc
+        mock_db.collection.assert_called_with('user_event_tracking')
+        mock_collection.where.assert_called_with('phone', '==', normalized_phone)
 
     @patch('app.services.firestore_service.db')
     def test_get_or_create_user_new(self, mock_db):
@@ -135,7 +140,7 @@ class TestEventService(unittest.TestCase):
         """Test checking if an event exists."""
         event_id = 'test123'
 
-        # Mock existing info document
+        # Mock existing event document
         mock_doc = MagicMock()
         mock_doc.exists = True
 
@@ -149,7 +154,9 @@ class TestEventService(unittest.TestCase):
         result = EventService.event_exists(event_id)
 
         self.assertTrue(result)
-        mock_collection.document.assert_called_once_with('info')
+        # Event config is now the event document itself, not 'info' subdocument
+        mock_db.collection.assert_called_once_with('elicitation_bot_events')
+        mock_collection.document.assert_called_once_with(event_id)
 
     @patch('app.services.firestore_service.db')
     def test_get_event_info(self, mock_db):
@@ -176,6 +183,9 @@ class TestEventService(unittest.TestCase):
 
         self.assertEqual(result, expected_info)
         self.assertEqual(result['mode'], 'listener')
+        # Event info is now the event document itself
+        mock_db.collection.assert_called_once_with('elicitation_bot_events')
+        mock_collection.document.assert_called_once_with(event_id)
 
     @patch('app.services.firestore_service.EventService.get_event_info')
     def test_is_second_round_enabled_true(self, mock_get_info):
@@ -248,50 +258,84 @@ class TestParticipantService(unittest.TestCase):
         expected_data = {
             'name': 'John Doe',
             'interactions': [],
-            'event_id': event_id
+            'event_id': event_id,
+            'phone': normalized_phone
         }
 
-        mock_doc = MagicMock()
-        mock_doc.exists = True
-        mock_doc.to_dict.return_value = expected_data
+        # Mock query result document
+        mock_doc_snapshot = MagicMock()
+        mock_doc_snapshot.to_dict.return_value = expected_data
 
-        mock_doc_ref = MagicMock()
-        mock_doc_ref.get.return_value = mock_doc
+        # Mock query that returns list of documents
+        mock_query = MagicMock()
+        mock_query.stream.return_value = [mock_doc_snapshot]
 
-        mock_collection = MagicMock()
-        mock_collection.document.return_value = mock_doc_ref
-        mock_db.collection.return_value = mock_collection
+        # Mock the where().limit() chain
+        mock_where = MagicMock()
+        mock_where.limit.return_value = mock_query
+
+        # Mock subcollection structure for query
+        mock_participant_collection = MagicMock()
+        mock_participant_collection.where.return_value = mock_where
+
+        mock_event_doc = MagicMock()
+        mock_event_doc.collection.return_value = mock_participant_collection
+
+        mock_event_collection = MagicMock()
+        mock_event_collection.document.return_value = mock_event_doc
+        mock_db.collection.return_value = mock_event_collection
 
         result = ParticipantService.get_participant(event_id, normalized_phone)
 
         self.assertEqual(result, expected_data)
         self.assertEqual(result['name'], 'John Doe')
+        # Verify correct collection structure and query
+        mock_db.collection.assert_called_once_with('elicitation_bot_events')
+        mock_participant_collection.where.assert_called_once_with('phone', '==', normalized_phone)
 
+    @patch('app.services.firestore_service.UserTrackingService.get_user')
     @patch('app.services.firestore_service.db')
-    def test_initialize_participant_new(self, mock_db):
+    def test_initialize_participant_new(self, mock_db, mock_get_user):
         """Test initializing a new participant."""
         event_id = 'test123'
         normalized_phone = '1234567890'
+        user_uuid = 'uuid-123'
 
-        # Mock non-existent document
-        mock_doc = MagicMock()
-        mock_doc.exists = False
+        # Mock user data with UUID
+        mock_get_user.return_value = {'user_id': user_uuid, 'phone': normalized_phone}
 
+        # Mock empty query result (no existing participant)
+        mock_query = MagicMock()
+        mock_query.stream.return_value = []
+
+        mock_where = MagicMock()
+        mock_where.limit.return_value = mock_query
+
+        # Mock new participant document ref
         mock_doc_ref = MagicMock()
-        mock_doc_ref.get.return_value = mock_doc
 
-        mock_collection = MagicMock()
-        mock_collection.document.return_value = mock_doc_ref
-        mock_db.collection.return_value = mock_collection
+        # Mock subcollection structure
+        mock_participant_collection = MagicMock()
+        mock_participant_collection.where.return_value = mock_where
+        mock_participant_collection.document.return_value = mock_doc_ref
+
+        mock_event_doc = MagicMock()
+        mock_event_doc.collection.return_value = mock_participant_collection
+
+        mock_event_collection = MagicMock()
+        mock_event_collection.document.return_value = mock_event_doc
+        mock_db.collection.return_value = mock_event_collection
 
         ParticipantService.initialize_participant(event_id, normalized_phone)
 
-        # Should call set to create document
+        # Should call set to create document with UUID
         mock_doc_ref.set.assert_called_once()
         call_args = mock_doc_ref.set.call_args[0][0]
         self.assertIsNone(call_args['name'])
         self.assertEqual(call_args['interactions'], [])
         self.assertEqual(call_args['event_id'], event_id)
+        self.assertEqual(call_args['phone'], normalized_phone)
+        self.assertEqual(call_args['participant_id'], user_uuid)
 
     @patch('app.services.firestore_service.ParticipantService.get_participant')
     def test_get_interaction_count(self, mock_get_participant):
@@ -339,25 +383,29 @@ class TestParticipantService(unittest.TestCase):
         self.assertTrue(data['second_round_intro_done'])
 
     @patch('app.services.firestore_service.db')
-    @patch('app.services.firestore_service.EventService.get_collection_name')
-    def test_get_all_participants(self, mock_get_collection_name, mock_db):
+    def test_get_all_participants(self, mock_db):
         """Test streaming all participants for an event."""
         event_id = 'test123'
-        collection_name = 'AOI_test123'
-        mock_get_collection_name.return_value = collection_name
 
         # Mock participant documents
         mock_doc1 = MagicMock()
-        mock_doc1.id = 'participant1'
+        mock_doc1.id = 'uuid-1'
         mock_doc1.exists = True
 
         mock_doc2 = MagicMock()
-        mock_doc2.id = 'participant2'
+        mock_doc2.id = 'uuid-2'
         mock_doc2.exists = True
 
-        mock_collection = MagicMock()
-        mock_collection.stream.return_value = [mock_doc1, mock_doc2]
-        mock_db.collection.return_value = mock_collection
+        # Mock subcollection structure
+        mock_participant_collection = MagicMock()
+        mock_participant_collection.stream.return_value = iter([mock_doc1, mock_doc2])
+
+        mock_event_doc = MagicMock()
+        mock_event_doc.collection.return_value = mock_participant_collection
+
+        mock_event_collection = MagicMock()
+        mock_event_collection.document.return_value = mock_event_doc
+        mock_db.collection.return_value = mock_event_collection
 
         # Execute
         result = ParticipantService.get_all_participants(event_id)
@@ -365,20 +413,18 @@ class TestParticipantService(unittest.TestCase):
 
         # Assertions
         self.assertEqual(len(docs), 2)
-        self.assertEqual(docs[0].id, 'participant1')
-        self.assertEqual(docs[1].id, 'participant2')
-        mock_get_collection_name.assert_called_once_with(event_id)
-        mock_db.collection.assert_called_once_with(collection_name)
-        mock_collection.stream.assert_called_once()
+        self.assertEqual(docs[0].id, 'uuid-1')
+        self.assertEqual(docs[1].id, 'uuid-2')
+        mock_db.collection.assert_called_once_with('elicitation_bot_events')
+        mock_event_collection.document.assert_called_once_with(event_id)
+        mock_event_doc.collection.assert_called_once_with('participants')
+        mock_participant_collection.stream.assert_called_once()
 
     @patch('app.services.firestore_service.db')
-    @patch('app.services.firestore_service.EventService.get_collection_name')
-    def test_get_specific_participants(self, mock_get_collection_name, mock_db):
-        """Test getting specific participants by ID."""
+    def test_get_specific_participants(self, mock_db):
+        """Test getting specific participants by UUID."""
         event_id = 'test123'
-        collection_name = 'AOI_test123'
-        participant_ids = ['participant1', 'participant2', 'participant3']
-        mock_get_collection_name.return_value = collection_name
+        participant_ids = ['uuid-1', 'uuid-2', 'uuid-3']
 
         # Mock participant documents
         mock_docs = []
@@ -388,12 +434,23 @@ class TestParticipantService(unittest.TestCase):
             mock_doc.exists = True
             mock_docs.append(mock_doc)
 
-        mock_doc_ref = MagicMock()
-        mock_doc_ref.get.side_effect = mock_docs
+        # Mock document reference for each participant
+        mock_doc_refs = []
+        for mock_doc in mock_docs:
+            mock_doc_ref = MagicMock()
+            mock_doc_ref.get.return_value = mock_doc
+            mock_doc_refs.append(mock_doc_ref)
 
-        mock_collection = MagicMock()
-        mock_collection.document.return_value = mock_doc_ref
-        mock_db.collection.return_value = mock_collection
+        # Mock subcollection structure
+        mock_participant_collection = MagicMock()
+        mock_participant_collection.document.side_effect = mock_doc_refs
+
+        mock_event_doc = MagicMock()
+        mock_event_doc.collection.return_value = mock_participant_collection
+
+        mock_event_collection = MagicMock()
+        mock_event_collection.document.return_value = mock_event_doc
+        mock_db.collection.return_value = mock_event_collection
 
         # Execute
         result = ParticipantService.get_specific_participants(event_id, participant_ids)
@@ -401,12 +458,10 @@ class TestParticipantService(unittest.TestCase):
 
         # Assertions
         self.assertEqual(len(docs), 3)
-        self.assertEqual(docs[0].id, 'participant1')
-        self.assertEqual(docs[1].id, 'participant2')
-        self.assertEqual(docs[2].id, 'participant3')
-        mock_get_collection_name.assert_called_once_with(event_id)
-        mock_db.collection.assert_called_once_with(collection_name)
-        self.assertEqual(mock_collection.document.call_count, 3)
+        self.assertEqual(docs[0].id, 'uuid-1')
+        self.assertEqual(docs[1].id, 'uuid-2')
+        self.assertEqual(docs[2].id, 'uuid-3')
+        self.assertEqual(mock_participant_collection.document.call_count, 3)
 
     @patch('app.services.firestore_service.db')
     @patch('app.services.firestore_service.EventService.get_collection_name')
@@ -902,96 +957,141 @@ class TestReportService(unittest.TestCase):
         """Test streaming all participants without filter."""
         # Mock participant snapshots
         mock_snap1 = MagicMock()
-        mock_snap1.id = 'user1'
+        mock_snap1.id = 'uuid-1'
         mock_snap2 = MagicMock()
-        mock_snap2.id = 'user2'
+        mock_snap2.id = 'uuid-2'
         mock_snap3 = MagicMock()
-        mock_snap3.id = 'info'
+        mock_snap3.id = 'uuid-3'
 
-        mock_collection = MagicMock()
-        mock_collection.stream.return_value = iter([mock_snap1, mock_snap2, mock_snap3])
-        mock_db.collection.return_value = mock_collection
+        # Mock subcollection structure
+        mock_participant_collection = MagicMock()
+        mock_participant_collection.stream.return_value = iter([mock_snap1, mock_snap2, mock_snap3])
+
+        mock_event_doc = MagicMock()
+        mock_event_doc.collection.return_value = mock_participant_collection
+
+        mock_event_collection = MagicMock()
+        mock_event_collection.document.return_value = mock_event_doc
+        mock_db.collection.return_value = mock_event_collection
 
         result = list(ReportService.stream_event_participants('event123'))
 
         self.assertEqual(len(result), 3)
-        self.assertEqual(result[0].id, 'user1')
-        self.assertEqual(result[1].id, 'user2')
-        self.assertEqual(result[2].id, 'info')
-        mock_collection.stream.assert_called_once()
+        self.assertEqual(result[0].id, 'uuid-1')
+        self.assertEqual(result[1].id, 'uuid-2')
+        self.assertEqual(result[2].id, 'uuid-3')
+        mock_participant_collection.stream.assert_called_once()
 
     @patch('app.services.firestore_service.db')
     def test_stream_event_participants_filtered(self, mock_db):
-        """Test streaming specific participants with only_for filter."""
-        # Mock specific participant snapshots
+        """Test streaming specific participants with only_for filter (by phone)."""
+        phone1 = '1234567890'
+        phone2 = '0987654321'
+
+        # Mock query results for each phone
         mock_snap1 = MagicMock()
-        mock_snap1.exists = True
-        mock_snap1.id = 'user1'
+        mock_snap1.id = 'uuid-1'
 
         mock_snap2 = MagicMock()
-        mock_snap2.exists = True
-        mock_snap2.id = 'user3'
+        mock_snap2.id = 'uuid-2'
 
-        mock_doc_ref1 = MagicMock()
-        mock_doc_ref1.get.return_value = mock_snap1
+        # Mock queries for each phone number
+        mock_query1 = MagicMock()
+        mock_query1.stream.return_value = [mock_snap1]
 
-        mock_doc_ref2 = MagicMock()
-        mock_doc_ref2.get.return_value = mock_snap2
+        mock_query2 = MagicMock()
+        mock_query2.stream.return_value = [mock_snap2]
 
-        mock_collection = MagicMock()
-        mock_collection.document.side_effect = [mock_doc_ref1, mock_doc_ref2]
-        mock_db.collection.return_value = mock_collection
+        # Mock where().limit() chain
+        mock_where1 = MagicMock()
+        mock_where1.limit.return_value = mock_query1
 
-        result = list(ReportService.stream_event_participants('event123', ['user1', 'user3']))
+        mock_where2 = MagicMock()
+        mock_where2.limit.return_value = mock_query2
+
+        # Mock subcollection structure
+        mock_participant_collection = MagicMock()
+        mock_participant_collection.where.side_effect = [mock_where1, mock_where2]
+
+        mock_event_doc = MagicMock()
+        mock_event_doc.collection.return_value = mock_participant_collection
+
+        mock_event_collection = MagicMock()
+        mock_event_collection.document.return_value = mock_event_doc
+        mock_db.collection.return_value = mock_event_collection
+
+        result = list(ReportService.stream_event_participants('event123', [phone1, phone2]))
 
         self.assertEqual(len(result), 2)
-        self.assertEqual(result[0].id, 'user1')
-        self.assertEqual(result[1].id, 'user3')
-        mock_collection.stream.assert_not_called()
+        self.assertEqual(result[0].id, 'uuid-1')
+        self.assertEqual(result[1].id, 'uuid-2')
+        # Should use queries, not stream
+        mock_participant_collection.stream.assert_not_called()
 
     @patch('app.services.firestore_service.db')
     def test_stream_event_participants_filtered_nonexistent(self, mock_db):
-        """Test streaming with filter that includes non-existent participant."""
-        # Mock existing and non-existing participants
+        """Test streaming with filter that includes non-existent participant (by phone)."""
+        phone1 = '1234567890'
+        phone_nonexistent = '9999999999'
+
+        # Mock query results
         mock_snap1 = MagicMock()
-        mock_snap1.exists = True
-        mock_snap1.id = 'user1'
+        mock_snap1.id = 'uuid-1'
 
-        mock_snap2 = MagicMock()
-        mock_snap2.exists = False
+        # First query returns a result, second returns empty
+        mock_query1 = MagicMock()
+        mock_query1.stream.return_value = [mock_snap1]
 
-        mock_doc_ref1 = MagicMock()
-        mock_doc_ref1.get.return_value = mock_snap1
+        mock_query2 = MagicMock()
+        mock_query2.stream.return_value = []  # No results for nonexistent
 
-        mock_doc_ref2 = MagicMock()
-        mock_doc_ref2.get.return_value = mock_snap2
+        # Mock where().limit() chain
+        mock_where1 = MagicMock()
+        mock_where1.limit.return_value = mock_query1
 
-        mock_collection = MagicMock()
-        mock_collection.document.side_effect = [mock_doc_ref1, mock_doc_ref2]
-        mock_db.collection.return_value = mock_collection
+        mock_where2 = MagicMock()
+        mock_where2.limit.return_value = mock_query2
 
-        result = list(ReportService.stream_event_participants('event123', ['user1', 'nonexistent']))
+        # Mock subcollection structure
+        mock_participant_collection = MagicMock()
+        mock_participant_collection.where.side_effect = [mock_where1, mock_where2]
+
+        mock_event_doc = MagicMock()
+        mock_event_doc.collection.return_value = mock_participant_collection
+
+        mock_event_collection = MagicMock()
+        mock_event_collection.document.return_value = mock_event_doc
+        mock_db.collection.return_value = mock_event_collection
+
+        result = list(ReportService.stream_event_participants('event123', [phone1, phone_nonexistent]))
 
         # Should only yield existing participant
         self.assertEqual(len(result), 1)
-        self.assertEqual(result[0].id, 'user1')
+        self.assertEqual(result[0].id, 'uuid-1')
 
     @patch('app.services.firestore_service.db')
     def test_stream_event_participants_empty_filter(self, mock_db):
         """Test streaming with empty only_for list (treated as None)."""
         # Mock participant snapshots
         mock_snap1 = MagicMock()
-        mock_snap1.id = 'user1'
+        mock_snap1.id = 'uuid-1'
 
-        mock_collection = MagicMock()
-        mock_collection.stream.return_value = iter([mock_snap1])
-        mock_db.collection.return_value = mock_collection
+        # Mock subcollection structure
+        mock_participant_collection = MagicMock()
+        mock_participant_collection.stream.return_value = iter([mock_snap1])
+
+        mock_event_doc = MagicMock()
+        mock_event_doc.collection.return_value = mock_participant_collection
+
+        mock_event_collection = MagicMock()
+        mock_event_collection.document.return_value = mock_event_doc
+        mock_db.collection.return_value = mock_event_collection
 
         result = list(ReportService.stream_event_participants('event123', []))
 
         # Empty list is falsy, so it should stream all like None
         self.assertEqual(len(result), 1)
-        mock_collection.stream.assert_called_once()
+        mock_participant_collection.stream.assert_called_once()
 
 
 if __name__ == '__main__':

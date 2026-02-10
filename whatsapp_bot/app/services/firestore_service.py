@@ -169,26 +169,41 @@ class UserTrackingService:
 
 
 class EventService:
-    """Handles operations on event collections (AOI_eventid)."""
+    """Handles operations on event collections (elicitation_bot_events)."""
+
+    COLLECTION_NAME = 'elicitation_bot_events'
 
     @staticmethod
     def get_collection_name(event_id: str) -> str:
         """
-        Get the normalized collection name for an event.
+        Get the collection name for events.
+
+        Args:
+            event_id: Event ID (unused, kept for backward compatibility)
+
+        Returns:
+            Collection name ('elicitation_bot_events')
+        """
+        # No longer using AOI_ prefix or event-specific collections
+        return EventService.COLLECTION_NAME
+
+    @staticmethod
+    def get_event_path(event_id: str) -> str:
+        """
+        Get the full path to an event document.
 
         Args:
             event_id: Event ID
 
         Returns:
-            Collection name (e.g., 'AOI_event123')
+            Full path (e.g., 'elicitation_bot_events/event123')
         """
-        from app.utils.validators import normalize_event_path
-        return normalize_event_path(event_id)
+        return f'{EventService.COLLECTION_NAME}/{event_id}'
 
     @staticmethod
     def event_exists(event_id: str) -> bool:
         """
-        Check if an event exists by checking for the info document.
+        Check if an event exists by checking the event document.
 
         Args:
             event_id: Event ID to check
@@ -196,15 +211,15 @@ class EventService:
         Returns:
             True if event exists, False otherwise
         """
-        collection_name = EventService.get_collection_name(event_id)
-        doc_ref = db.collection(collection_name).document('info')
+        # Event config is now the event document itself, not 'info' subdocument
+        doc_ref = db.collection(EventService.COLLECTION_NAME).document(event_id)
         doc = doc_ref.get()
         return doc.exists
 
     @staticmethod
     def get_event_info(event_id: str) -> Optional[Dict[str, Any]]:
         """
-        Get event information from the info document.
+        Get event information from the event document.
 
         Args:
             event_id: Event ID
@@ -212,8 +227,8 @@ class EventService:
         Returns:
             Event info dict or None if not found
         """
-        collection_name = EventService.get_collection_name(event_id)
-        doc = db.collection(collection_name).document('info').get()
+        # Event info is now the event document itself
+        doc = db.collection(EventService.COLLECTION_NAME).document(event_id).get()
         return doc.to_dict() if doc.exists else None
 
     @staticmethod
