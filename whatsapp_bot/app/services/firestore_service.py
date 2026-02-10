@@ -17,6 +17,7 @@ class UserTrackingService:
     """Handles operations on the user_event_tracking collection."""
 
     COLLECTION_NAME = 'user_event_tracking'
+    TARGET_COLLECTION = 'elicitation_bot_events'
 
     @staticmethod
     def get_or_create_user(normalized_phone: str) -> Tuple[Any, Dict[str, Any]]:
