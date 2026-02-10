@@ -416,9 +416,15 @@ class ParticipantService:
         Returns:
             Participant data dict or None if not found
         """
-        collection_name = EventService.get_collection_name(event_id)
-        doc = db.collection(collection_name).document(normalized_phone).get()
-        return doc.to_dict() if doc.exists else None
+        # Query participants subcollection by phone field
+        query = (db.collection('elicitation_bot_events')
+                .document(event_id)
+                .collection('participants')
+                .where('phone', '==', normalized_phone)
+                .limit(1))
+
+        docs = list(query.stream())
+        return docs[0].to_dict() if docs else None
 
     @staticmethod
     def initialize_participant(event_id: str, normalized_phone: str) -> None:
@@ -429,18 +435,34 @@ class ParticipantService:
             event_id: Event ID
             normalized_phone: Normalized phone number
         """
-        collection_name = EventService.get_collection_name(event_id)
-        doc_ref = db.collection(collection_name).document(normalized_phone)
-        doc = doc_ref.get()
+        # Check if participant already exists
+        query = (db.collection('elicitation_bot_events')
+                .document(event_id)
+                .collection('participants')
+                .where('phone', '==', normalized_phone)
+                .limit(1))
 
-        if not doc.exists:
+        docs = list(query.stream())
+
+        if not docs:
+            # Create new participant with UUID
+            from uuid import uuid4
+            participant_uuid = str(uuid4())
+
+            doc_ref = (db.collection('elicitation_bot_events')
+                      .document(event_id)
+                      .collection('participants')
+                      .document(participant_uuid))
+
             data = {
+                'phone': normalized_phone,
+                'participant_id': participant_uuid,
                 'name': None,
                 'interactions': [],
                 'event_id': event_id
             }
             doc_ref.set(data)
-            logger.info(f"Initialized participant {normalized_phone} for event {event_id}")
+            logger.info(f"Initialized participant {normalized_phone} for event {event_id} with UUID {participant_uuid}")
 
     @staticmethod
     def update_participant(event_id: str, normalized_phone: str, data: Dict[str, Any]) -> None:
@@ -452,9 +474,20 @@ class ParticipantService:
             normalized_phone: Normalized phone number
             data: Fields to update
         """
-        collection_name = EventService.get_collection_name(event_id)
-        db.collection(collection_name).document(normalized_phone).update(data)
-        logger.debug(f"Updated participant {normalized_phone} in event {event_id}")
+        # Find participant by phone, then update
+        query = (db.collection('elicitation_bot_events')
+                .document(event_id)
+                .collection('participants')
+                .where('phone', '==', normalized_phone)
+                .limit(1))
+
+        docs = list(query.stream())
+
+        if docs:
+            docs[0].reference.update(data)
+            logger.debug(f"Updated participant {normalized_phone} in event {event_id}")
+        else:
+            logger.warning(f"Could not find participant {normalized_phone} in event {event_id}")
 
     @staticmethod
     def append_interaction(event_id: str, normalized_phone: str,
@@ -467,10 +500,18 @@ class ParticipantService:
             normalized_phone: Normalized phone number
             interaction: Interaction dict with message, response, and ts fields
         """
-        collection_name = EventService.get_collection_name(event_id)
-        db.collection(collection_name).document(normalized_phone).update({
-            'interactions': firestore.ArrayUnion([interaction])
-        })
+        query = (db.collection('elicitation_bot_events')
+                .document(event_id)
+                .collection('participants')
+                .where('phone', '==', normalized_phone)
+                .limit(1))
+
+        docs = list(query.stream())
+
+        if docs:
+            docs[0].reference.update({
+                'interactions': firestore.ArrayUnion([interaction])
+            })
 
     @staticmethod
     def append_second_round_interaction(event_id: str, normalized_phone: str,
@@ -483,10 +524,18 @@ class ParticipantService:
             normalized_phone: Normalized phone number
             interaction: Interaction dict with message/response and ts fields
         """
-        collection_name = EventService.get_collection_name(event_id)
-        db.collection(collection_name).document(normalized_phone).update({
-            'second_round_interactions': firestore.ArrayUnion([interaction])
-        })
+        query = (db.collection('elicitation_bot_events')
+                .document(event_id)
+                .collection('participants')
+                .where('phone', '==', normalized_phone)
+                .limit(1))
+
+        docs = list(query.stream())
+
+        if docs:
+            docs[0].reference.update({
+                'second_round_interactions': firestore.ArrayUnion([interaction])
+            })
 
     @staticmethod
     def get_interaction_count(event_id: str, normalized_phone: str) -> int:
@@ -630,8 +679,20 @@ class ParticipantService:
         """
         from datetime import datetime
 
-        collection_name = EventService.get_collection_name(event_id)
-        doc_ref = db.collection(collection_name).document(normalized_phone)
+        # Find participant document by phone
+        query = (db.collection('elicitation_bot_events')
+                .document(event_id)
+                .collection('participants')
+                .where('phone', '==', normalized_phone)
+                .limit(1))
+
+        docs = list(query.stream())
+
+        if not docs:
+            logger.warning(f"Could not find participant {normalized_phone} in event {event_id} for second round interaction")
+            return False
+
+        doc_ref = docs[0].reference
 
         @firestore.transactional
         def _process_transaction(transaction, ref, msg, reply, norm_fn):
