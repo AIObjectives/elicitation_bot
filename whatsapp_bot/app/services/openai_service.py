@@ -29,7 +29,6 @@ def extract_event_id_with_llm(user_input):
     """Extract the event ID from the user's input using LLM analysis."""
     # Fetch all valid event IDs from Firestore (new schema: elicitation_bot_events)
     try:
-        # Get all event documents from the new collection
         events = db.collection('elicitation_bot_events').stream()
         valid_event_ids = [event.id for event in events]
     except Exception as e:
@@ -73,14 +72,13 @@ def extract_event_id_with_llm(user_input):
 
 def extract_name_with_llm(user_input, event_id):
     """Extract the user's name from the user's input using LLM analysis."""
-    # Fetch dynamic event-specific details from Firestore (new schema)
-    event_info_ref = db.collection('elicitation_bot_events').document(event_id)
-    event_info_doc = event_info_ref.get()
+    # Fetch dynamic event-specific details from Firestore (new schema: elicitation_bot_events/event_id)
+    event_doc = db.collection('elicitation_bot_events').document(event_id).get()
 
     event_name = 'the event'
     event_location = 'the location'
-    if event_info_doc.exists:
-        event_info = event_info_doc.to_dict()
+    if event_doc.exists:
+        event_info = event_doc.to_dict()
         event_name = event_info.get('event_name', event_name)
         event_location = event_info.get('event_location', event_location)
 
@@ -134,22 +132,21 @@ def extract_name_with_llm(user_input, event_id):
 def event_id_valid(event_id):
     """ Validate event ID by checking if it exists in Firestore """
     try:
-        # Check if event exists in new elicitation_bot_events collection
-        event_ref = db.collection('elicitation_bot_events').document(event_id)
-        return event_ref.get().exists
+        # Check if event exists in elicitation_bot_events collection
+        event_doc = db.collection('elicitation_bot_events').document(event_id).get()
+        return event_doc.exists
     except Exception as e:
         logger.error(f"Error validating event ID: {e}")
         return False
     
 def create_welcome_message(event_id, participant_name=None, prompt_for_name=False):
     """Construct the welcome message using the event's welcome_message from the database."""
-    # Fetch event details from new schema
-    event_info_ref = db.collection('elicitation_bot_events').document(event_id)
-    event_info_doc = event_info_ref.get()
+    # Fetch event details from new schema: elicitation_bot_events/event_id
+    event_doc = db.collection('elicitation_bot_events').document(event_id).get()
     welcome_message = "Welcome! You can now start sending text and audio messages."
 
-    if event_info_doc.exists:
-        event_info = event_info_doc.to_dict()
+    if event_doc.exists:
+        event_info = event_doc.to_dict()
         welcome_message = event_info.get('welcome_message', welcome_message)
 
     # If participant_name is provided and not 'Anonymous', insert it into the welcome message
