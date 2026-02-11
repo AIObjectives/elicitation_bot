@@ -61,8 +61,17 @@ fi
 echo "Force pushing $SUBDIRECTORY to $REMOTE_NAME..."
 echo ""
 
-# Use git subtree to push only the subdirectory
-git subtree push --prefix "$SUBDIRECTORY" "$REMOTE_NAME" main --force
+# Use git subtree split to create a branch with only the subdirectory
+# then force push that branch to the remote
+SPLIT_BRANCH="deploy-$(date +%s)"
+echo "Creating temporary split branch: $SPLIT_BRANCH"
+git subtree split --prefix "$SUBDIRECTORY" -b "$SPLIT_BRANCH"
+
+echo "Force pushing to $REMOTE_NAME..."
+git push "$REMOTE_NAME" "$SPLIT_BRANCH:main" --force
+
+echo "Cleaning up temporary branch..."
+git branch -D "$SPLIT_BRANCH"
 
 echo ""
 echo "====================================="
