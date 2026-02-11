@@ -32,7 +32,7 @@ from app.services.openai_service import (
     extract_region_with_llm
 )
 
-from app.utils.validators import _norm, normalize_event_path, normalize_phone
+from app.utils.validators import _norm, normalize_phone
 from app.services.firestore_service import (
     UserTrackingService,
     EventService,

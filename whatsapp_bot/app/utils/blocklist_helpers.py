@@ -1,6 +1,6 @@
 import time
 from config.config import db, logger
-from app.utils.validators import normalize_event_path
+# normalize_event_path no longer needed with new schema
 
 # In-memory cache for phone lookups
 _cache = {}
@@ -84,13 +84,13 @@ def get_interaction_limit(event_id: str) -> int:
     limit = _DEFAULT_LIMIT
 
     try:
-        # Try per-event config
-        doc = db.collection(normalize_event_path(event_id)).document("info").get()
+        # Try per-event config (new schema: event document IS the info)
+        doc = db.collection('elicitation_bot_events').document(event_id).get()
         if doc.exists:
             data = doc.to_dict() or {}
             limit = int(data.get("interaction_limit", _DEFAULT_LIMIT))
         else:
-            logger.warning(f"[SystemConfig] Missing info doc for event {event_id}; falling back to global limit.")
+            logger.warning(f"[SystemConfig] Missing event doc for {event_id}; falling back to global limit.")
 
         # Try global fallback (only if not found)
         if limit == _DEFAULT_LIMIT:

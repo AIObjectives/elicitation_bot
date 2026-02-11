@@ -27,10 +27,11 @@ def extract_text_from_messages(messages):
 
 def extract_event_id_with_llm(user_input):
     """Extract the event ID from the user's input using LLM analysis."""
-    # Fetch all valid event IDs from Firestore
+    # Fetch all valid event IDs from Firestore (new schema: elicitation_bot_events)
     try:
-        collections = db.collections()
-        valid_event_ids = [collection.id.replace('AOI_', '') for collection in collections if collection.id.startswith('AOI_')]
+        # Get all event documents from the new collection
+        events = db.collection('elicitation_bot_events').stream()
+        valid_event_ids = [event.id for event in events]
     except Exception as e:
         logger.error(f"Error fetching event IDs: {e}")
         return None
@@ -72,8 +73,8 @@ def extract_event_id_with_llm(user_input):
 
 def extract_name_with_llm(user_input, event_id):
     """Extract the user's name from the user's input using LLM analysis."""
-    # Fetch dynamic event-specific details from Firestore
-    event_info_ref = db.collection(f'AOI_{event_id}').document('info')
+    # Fetch dynamic event-specific details from Firestore (new schema)
+    event_info_ref = db.collection('elicitation_bot_events').document(event_id)
     event_info_doc = event_info_ref.get()
 
     event_name = 'the event'
@@ -133,20 +134,17 @@ def extract_name_with_llm(user_input, event_id):
 def event_id_valid(event_id):
     """ Validate event ID by checking if it exists in Firestore """
     try:
-        # Query Firestore for all collections starting with 'AOI_'
-        collections = db.collections()
-        valid_event_ids = [collection.id.replace('AOI_', '') for collection in collections if collection.id.startswith('AOI_')]
-
-        # Check if the provided event_id exists in the list
-        return event_id in valid_event_ids
+        # Check if event exists in new elicitation_bot_events collection
+        event_ref = db.collection('elicitation_bot_events').document(event_id)
+        return event_ref.get().exists
     except Exception as e:
         logger.error(f"Error validating event ID: {e}")
         return False
     
 def create_welcome_message(event_id, participant_name=None, prompt_for_name=False):
     """Construct the welcome message using the event's welcome_message from the database."""
-    # Fetch event details
-    event_info_ref = db.collection(f'AOI_{event_id}').document('info')
+    # Fetch event details from new schema
+    event_info_ref = db.collection('elicitation_bot_events').document(event_id)
     event_info_doc = event_info_ref.get()
     welcome_message = "Welcome! You can now start sending text and audio messages."
 
