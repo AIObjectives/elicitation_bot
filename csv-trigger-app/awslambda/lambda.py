@@ -10,18 +10,14 @@ import urllib.parse
 from firebase_admin import credentials, firestore, initialize_app, get_app
 import config
 
-def get_collection_data(db, collection_name):
-    """ Fetch all documents from the Firestore collection, excluding the 'info' document """
-    collection_ref = db.collection(collection_name)
+def get_collection_data(db, event_id):
+    """ Fetch all participant documents from the event's participants subcollection """
+    collection_ref = db.collection('elicitation_bot_events').document(event_id).collection('participants')
     docs = collection_ref.stream()
     data = {}
-    
+
     for doc in docs:
         doc_data = doc.to_dict()
-        
-        # Skip the 'info' document
-        if doc.id == 'info':
-            continue
 
         # Filter out any empty fields
         filtered_data = {key: value for key, value in doc_data.items() if value}
@@ -67,36 +63,33 @@ def get_collection_data(db, collection_name):
 #         print(f"An error occurred: {e}")
 
 
-def get_all_user_inputs(db, collection_name):
-    """ Fetch all user messages (excluding bot responses) across documents in the collection, and any additional fields """
+def get_all_user_inputs(db, event_id):
+    """ Fetch all user messages (excluding bot responses) from the event's participants subcollection """
     try:
-        collection_data = db.collection(collection_name).stream()
+        collection_data = db.collection('elicitation_bot_events').document(event_id).collection('participants').stream()
         all_messages = {}
 
         for doc in collection_data:
-            # Skip the 'info' document
-            if doc.id == 'info':
-                continue
-            
             doc_data = doc.to_dict()
-            phone_number = doc.id  # The document ID is the phone number
+            participant_id = doc.id  # UUID
 
             # Extract the user messages, skipping bot responses
             user_messages = [
-                interaction.get('message', '') for interaction in doc_data.get('interactions', []) 
+                interaction.get('message', '') for interaction in doc_data.get('interactions', [])
                 if isinstance(interaction, dict) and 'message' in interaction and 'response' not in interaction
             ]
 
             # Clean the messages by joining them without brackets/quotes
             cleaned_messages = " ".join(user_messages).replace('[', '').replace(']', '').replace("'", "")
-            
+
             # Fetch the name (if available) and any additional fields, excluding unwanted fields
             name = doc_data.get('name', '')  # The 'name' field
-            other_fields = {key: value for key, value in doc_data.items() 
-                            if key not in ['interactions', 'name', 'limit_reached_notified', 'event_id']}
-            
+            other_fields = {key: value for key, value in doc_data.items()
+                            if key not in ['interactions', 'second_round_interactions', 'name',
+                                           'participant_id', 'event_id']}
+
             # Store all fields dynamically, including 'name', 'comment-body', and others
-            all_messages[phone_number] = {
+            all_messages[participant_id] = {
                 'name': name,
                 'comment-body': cleaned_messages,
                 **other_fields  # Merge any other fields dynamically
