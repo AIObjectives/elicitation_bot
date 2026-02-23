@@ -23,7 +23,7 @@ def get_user_event_tracking_data():
     print("Fetching user-event tracking data...")
 
     for doc in docs:
-        user_id = doc.id  # normalized_phone
+        user_id = doc.id  # UUID
         data = doc.to_dict()
         events = data.get('events', [])
         awaiting_event_id = data.get('awaiting_event_id', False)
@@ -156,13 +156,13 @@ def delete_users_by_criteria(user_data, dry_run=True):
 
             db.collection('user_event_tracking').document(user_id).delete()
             
-            # Also delete user from each event collection
+            # Also delete user from each event's participants subcollection
             user_events = user_data[user_id].get('events', [])
             for event in user_events:
                 event_id = event.get('event_id')
                 if event_id:
-                    print(f"Deleting user '{user_id}' from event collection 'AOI_{event_id}'...")
-                    db.collection(f'AOI_{event_id}').document(user_id).delete()
+                    print(f"Deleting user '{user_id}' from event '{event_id}' participants...")
+                    db.collection('elicitation_bot_events').document(event_id).collection('participants').document(user_id).delete()
         print("\nDeletion completed.")
 
 
@@ -235,17 +235,17 @@ def delete_users_by_event_id(user_data, dry_run=True):
             print(f"Deleting user '{user_id}' from 'user_event_tracking' collection...")
             db.collection('user_event_tracking').document(user_id).delete()
             
-            # Also delete the user document from the specific event collection
-            print(f"Deleting user '{user_id}' from event collection 'AOI_{event_id_to_delete}'...")
-            db.collection(f'AOI_{event_id_to_delete}').document(user_id).delete()
+            # Also delete the user document from the event's participants subcollection
+            print(f"Deleting user '{user_id}' from event '{event_id_to_delete}' participants...")
+            db.collection('elicitation_bot_events').document(event_id_to_delete).collection('participants').document(user_id).delete()
 
         for user_id, new_events in users_to_update:
             print(f"Updating user '{user_id}' to remove event '{event_id_to_delete}'...")
             db.collection('user_event_tracking').document(user_id).update({'events': new_events})
-            
-            # Also delete the user document from the specific event collection
-            print(f"Deleting user '{user_id}' from event collection 'AOI_{event_id_to_delete}'...")
-            db.collection(f'AOI_{event_id_to_delete}').document(user_id).delete()
+
+            # Also delete the user document from the event's participants subcollection
+            print(f"Deleting user '{user_id}' from event '{event_id_to_delete}' participants...")
+            db.collection('elicitation_bot_events').document(event_id_to_delete).collection('participants').document(user_id).delete()
 
         print("\nDeletion and updates completed.")
 
