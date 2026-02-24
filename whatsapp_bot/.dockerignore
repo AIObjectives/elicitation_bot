@@ -1,0 +1,10 @@
+.env
+.python-version
+.DS_Store
+.coverage
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+tests/
+*.md
