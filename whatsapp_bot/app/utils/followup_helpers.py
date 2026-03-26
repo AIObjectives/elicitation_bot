@@ -81,6 +81,9 @@ def generate_bot_instructions(event_id, normalized_phone):
         bot_personality = event_info.get('bot_personality', '')
         bot_additional_prompts = event_info.get('bot_additional_prompts', [])
 
+        # Main questions the bot should ask
+        main_questions = event_info.get('questions', [])
+
         # Retrieve toggle & question list
         follow_up_toggle = event_info.get('follow_up_questions', {})
         follow_up_enabled = follow_up_toggle.get('enabled', False)
@@ -97,6 +100,7 @@ def generate_bot_instructions(event_id, normalized_phone):
         bot_personality = ''
         bot_additional_prompts = []
 
+        main_questions = []
         follow_up_toggle = {}
         follow_up_enabled = False
         follow_up_list = []
@@ -115,9 +119,17 @@ def generate_bot_instructions(event_id, normalized_phone):
     else:
         past_interactions_text = ''
 
-    # 3. Prepare text for principles & additional prompts
+    # 3. Prepare text for principles, additional prompts, and main questions
     bot_principles_text = '\n'.join(f'- {principle}' for principle in bot_principles)
     bot_additional_prompts_text = '\n'.join(f'- {prompt}' for prompt in bot_additional_prompts)
+
+    if main_questions:
+        main_questions_text = '\n'.join(
+            f"{idx+1}. {q['text']}" if isinstance(q, dict) else f"{idx+1}. {q}"
+            for idx, q in enumerate(main_questions)
+        )
+    else:
+        main_questions_text = ''
 
     # 4. Convert follow-up questions into a simple enumerated list to show in prompt
     if follow_up_enabled and follow_up_list:
@@ -167,6 +179,10 @@ Language Behavior
 - **Principles**:
 {bot_principles_text}
 - **Personality**: {bot_personality}
+
+### Questions to Ask
+Ask the user each of the following questions in order. After the user responds to a question, use the follow-up instructions below before moving on to the next question.
+{main_questions_text if main_questions_text else "No specific questions are configured. Engage the user on the topic."}
 
 ### Past User Interactions
 {past_interactions_text}
