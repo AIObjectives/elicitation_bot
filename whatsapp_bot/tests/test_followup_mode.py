@@ -627,11 +627,10 @@ class TestNormalConversationFlow:
     @patch('app.handlers.FollowupMode.ParticipantService')
     @patch('app.handlers.FollowupMode.client')
     @patch('app.handlers.FollowupMode.send_message')
-    @patch('app.handlers.FollowupMode.extract_text_from_messages')
-    async def test_normal_conversation_flow(self, mock_extract, mock_send, mock_client,
+    async def test_normal_conversation_flow(self, mock_send, mock_client,
                                            mock_participant_service, mock_event_service,
                                            mock_user_service):
-        """Test normal conversation flow with OpenAI."""
+        """Test normal conversation flow with Anthropic."""
         # Setup
         mock_user_service.get_or_create_user.return_value = (
             Mock(),
@@ -654,16 +653,8 @@ class TestNormalConversationFlow:
         mock_event_service.get_welcome_message.return_value = "Welcome!"
         mock_participant_service.get_interaction_count.return_value = 5
 
-        # Mock OpenAI responses
-        mock_thread = Mock()
-        mock_thread.id = 'thread123'
-        mock_client.beta.threads.create.return_value = mock_thread
-
-        mock_run = Mock()
-        mock_run.status = 'completed'
-        mock_client.beta.threads.runs.create_and_poll.return_value = mock_run
-
-        mock_extract.return_value = "That's an interesting point!"
+        # Mock Anthropic response
+        mock_client.messages.create.return_value.content[0].text = "That's an interesting point!"
 
         with patch('app.handlers.FollowupMode.generate_bot_instructions') as mock_instructions:
             mock_instructions.return_value = "Instructions"

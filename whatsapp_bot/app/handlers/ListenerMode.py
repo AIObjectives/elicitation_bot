@@ -14,15 +14,14 @@ from app.utils.blocklist_helpers import get_interaction_limit, is_blocked_number
 import random
 
 from config.config import (
-    db, logger, client, twilio_client,
-    twilio_number, assistant_id,
+    db, logger, client, openai_client, twilio_client,
+    twilio_number,
     twilio_account_sid, twilio_auth_token
 )
 from app.utils.validators import is_valid_name
 from app.utils.listener_helpers import generate_bot_instructions
 from app.services.twilio_service import send_message
 from app.services.openai_service import (
-    extract_text_from_messages,
     extract_name_with_llm,
     extract_event_id_with_llm,
     event_id_valid,
@@ -39,8 +38,8 @@ from app.services.firestore_service import (
     ParticipantService
 )
 
-DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "gpt-4o-mini")
-FALLBACK_MODEL = os.getenv("FALLBACK_MODEL", "gpt-4.1-mini")
+DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "claude-opus-4-6")
+FALLBACK_MODEL = os.getenv("FALLBACK_MODEL", "claude-opus-4-6")
 
 
 async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
@@ -316,7 +315,7 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
                 audio_stream = io.BytesIO(response.content)
                 audio_stream.name = 'file.ogg'
                 try:
-                    transcription_result = client.audio.transcriptions.create(
+                    transcription_result = openai_client.audio.transcriptions.create(
                         model="whisper-1",
                         file=audio_stream
                     )
@@ -549,13 +548,6 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
         return Response(status_code=200)
 
     # Send user prompt to LLM
-    thread = client.beta.threads.create()
-    client.beta.threads.messages.create(
-        thread_id=thread.id,
-        role="user",
-        content=Body
-    )
-
     ParticipantService.append_interaction(current_event_id, normalized_phone, {'message': Body})
 
     try:
@@ -567,77 +559,60 @@ async def reply_listener(Body: str, From: str, MediaUrl0: str = None):
         if event_info:
             default_model = event_info.get("default_model", default_model)
 
-        logger.info(f"[LLM Config] Using model from Firestore: {default_model}")
+        logger.info(f"[LLM Config] Using model: {default_model}")
 
     except Exception as e:
         logger.error(f"[LLM Config] Failed to fetch model from Firestore, defaulting to {DEFAULT_MODEL}: {e}")
         default_model = DEFAULT_MODEL
 
+    assistant_response = None
+    final_model = None
 
     try:
         # Primary model attempt
         logger.info(f"[LLM Run] Starting primary run with model: {default_model}")
-
-        run = client.beta.threads.runs.create_and_poll(
-            thread_id=thread.id,
-            assistant_id=assistant_id,
-            instructions=event_instructions,
-            model=default_model
+        response = client.messages.create(
+            model=default_model,
+            max_tokens=1024,
+            system=[{"type": "text", "text": event_instructions, "cache_control": {"type": "ephemeral"}}],
+            messages=[{"role": "user", "content": Body}],
         )
-
-        logger.info(f"[LLM Debug] Primary run status: {getattr(run, 'status', 'N/A')}")
-
-        # Fallback if the primary model failed or didn’t complete
-        if run.status != "completed":
-            logger.warning(f"[LLM Fallback] Model {default_model} failed, retrying with {FALLBACK_MODEL}")
-
-            if hasattr(run, 'last_error'):
-                logger.error(f"[LLM Debug] last_error (primary): {run.last_error}")
-            if hasattr(run, 'incomplete_details'):
-                logger.error(f"[LLM Debug] incomplete_details (primary): {run.incomplete_details}")
-
-            run = client.beta.threads.runs.create_and_poll(
-                thread_id=thread.id,
-                assistant_id=assistant_id,
-                instructions=event_instructions,
-                model=FALLBACK_MODEL
-            )
-
-            logger.info(f"[LLM Debug] Fallback run status: {getattr(run, 'status', 'N/A')}")
-
-    except Exception as e:
-        logger.exception(f"[LLM Exception] Error while creating run: {e}")
-        run = None
-
-
-    # --- RESPONSE HANDLING ---
-    if run and run.status == "completed":
-        final_model = getattr(run, 'model', default_model)
+        assistant_response = response.content[0].text
+        final_model = default_model
         logger.info(f"[LLM Success] Final model used: {final_model}")
 
-        messages = client.beta.threads.messages.list(thread_id=thread.id)
-        assistant_response = extract_text_from_messages(messages)
+    except Exception as e:
+        logger.warning(f"[LLM Fallback] Model {default_model} failed: {e}, retrying with {FALLBACK_MODEL}")
+        try:
+            response = client.messages.create(
+                model=FALLBACK_MODEL,
+                max_tokens=1024,
+                system=[{"type": "text", "text": event_instructions, "cache_control": {"type": "ephemeral"}}],
+                messages=[{"role": "user", "content": Body}],
+            )
+            assistant_response = response.content[0].text
+            final_model = FALLBACK_MODEL
+            logger.info(f"[LLM Success] Fallback model used: {final_model}")
+        except Exception as e2:
+            logger.exception(f"[LLM Exception] Both models failed: {e2}")
 
+    # --- RESPONSE HANDLING ---
+    if assistant_response:
         send_message(From, assistant_response)
         ParticipantService.append_interaction(current_event_id, normalized_phone, {
             'response': assistant_response,
             'model': final_model,
-            'fallback': False
+            'fallback': final_model == FALLBACK_MODEL
         })
     else:
-        logger.warning("[LLM Fallback] Both models failed or returned incomplete response.")
-
-        if run and hasattr(run, 'last_error'):
-            logger.error(f"[LLM Debug] last_error (final): {run.last_error}")
-        if run and hasattr(run, 'incomplete_details'):
-            logger.error(f"[LLM Debug] incomplete_details (final): {run.incomplete_details}")
+        logger.warning("[LLM Fallback] Both models failed or returned empty response.")
 
         fallback_responses = [
             "Agreed.",
             "Please continue.",
-            "That’s an interesting point, tell me more.",
+            "That's an interesting point, tell me more.",
             "I understand.",
-            "Go on, I’m listening."
+            "Go on, I'm listening."
         ]
         fallback_message = random.choice(fallback_responses)
 

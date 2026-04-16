@@ -103,18 +103,15 @@ def _build_reply(user_msg,event_id: str, summary, agreeable, opposing, metadata,
     system_prompt = dynamic_system_prompt
 
     try:
-        resp = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=0.35,
+        resp = client.messages.create(
+            model="claude-opus-4-6",
             max_tokens=200,
+            system=[{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}],
+            messages=[{"role": "user", "content": user_prompt}],
         )
-        return (resp.choices[0].message.content or "").strip()
+        return resp.content[0].text.strip()
     except Exception as e:
-        logger.error(f"[2nd-round] GPT error: {e}")
+        logger.error(f"[2nd-round] Anthropic error: {e}")
         return None
 
 def run_second_round_for_user(event_id: str, phone_number: str, user_msg: Optional[str] = "") -> Optional[str]:

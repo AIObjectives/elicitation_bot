@@ -32,8 +32,8 @@ mock_firebase_creds = json.dumps({
 os.environ.setdefault('TWILIO_ACCOUNT_SID', 'test_account_sid')
 os.environ.setdefault('TWILIO_AUTH_TOKEN', 'test_auth_token')
 os.environ.setdefault('TWILIO_NUMBER', '+1234567890')
+os.environ.setdefault('ANTHROPIC_API_KEY', 'test_anthropic_key')
 os.environ.setdefault('OPENAI_API_KEY', 'test_openai_key')
-os.environ.setdefault('ASSISTANT_ID', 'test_assistant_id')
 os.environ.setdefault('FIREBASE_CREDENTIALS_JSON', mock_firebase_creds)
 
 # Mock Firebase admin to prevent actual initialization
@@ -66,8 +66,17 @@ def mock_twilio():
 
 
 @pytest.fixture(autouse=True)
+def mock_anthropic():
+    """Mock Anthropic client to avoid actual API calls."""
+    with patch('anthropic.Anthropic') as mock_client_class:
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+        yield mock_client
+
+
+@pytest.fixture(autouse=True)
 def mock_openai():
-    """Mock OpenAI client to avoid actual API calls."""
+    """Mock OpenAI client to avoid actual API calls (used for Whisper audio transcription)."""
     with patch('openai.OpenAI') as mock_client_class:
         mock_client = MagicMock()
         mock_client_class.return_value = mock_client

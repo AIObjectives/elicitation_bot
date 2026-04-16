@@ -256,11 +256,10 @@ class TestBuildReply(unittest.TestCase):
             'user_prompt': ''
         }
 
-        # Mock OpenAI response
+        # Mock Anthropic response
         mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = 'Solar energy is a great option because...'
-        mock_client.chat.completions.create.return_value = mock_response
+        mock_response.content[0].text = 'Solar energy is a great option because...'
+        mock_client.messages.create.return_value = mock_response
 
         result = _build_reply(
             user_msg, event_id, summary, agreeable, opposing,
@@ -268,7 +267,7 @@ class TestBuildReply(unittest.TestCase):
         )
 
         self.assertEqual(result, 'Solar energy is a great option because...')
-        mock_client.chat.completions.create.assert_called_once()
+        mock_client.messages.create.assert_called_once()
 
     @patch('app.deliberation.second_round_agent.client')
     @patch('app.deliberation.second_round_agent._fetch_dynamic_prompt')
@@ -284,9 +283,8 @@ class TestBuildReply(unittest.TestCase):
         mock_fetch_prompt.return_value = custom_prompts
 
         mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = 'Custom response'
-        mock_client.chat.completions.create.return_value = mock_response
+        mock_response.content[0].text = 'Custom response'
+        mock_client.messages.create.return_value = mock_response
 
         result = _build_reply(
             user_msg, event_id, 'summary', [], [], {}, None, [], False
@@ -294,11 +292,10 @@ class TestBuildReply(unittest.TestCase):
 
         self.assertEqual(result, 'Custom response')
 
-        # Verify custom system prompt was used
-        call_args = mock_client.chat.completions.create.call_args
-        messages = call_args[1]['messages']
-        self.assertEqual(messages[0]['role'], 'system')
-        self.assertEqual(messages[0]['content'], 'Custom system prompt')
+        # Verify custom system prompt was used (Anthropic uses 'system' param as list)
+        call_args = mock_client.messages.create.call_args
+        system_arg = call_args.kwargs['system']
+        self.assertEqual(system_arg[0]['text'], 'Custom system prompt')
 
     @patch('app.deliberation.second_round_agent.client')
     @patch('app.deliberation.second_round_agent._fetch_dynamic_prompt')
@@ -313,9 +310,8 @@ class TestBuildReply(unittest.TestCase):
         mock_fetch_prompt.return_value = {'system_prompt': '', 'user_prompt': '{agree_block}{oppose_block}'}
 
         mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = 'Response'
-        mock_client.chat.completions.create.return_value = mock_response
+        mock_response.content[0].text = 'Response'
+        mock_client.messages.create.return_value = mock_response
 
         result = _build_reply(
             user_msg, event_id, 'summary', agreeable, opposing,
@@ -323,8 +319,8 @@ class TestBuildReply(unittest.TestCase):
         )
 
         # Check that the user prompt contains hidden markers
-        call_args = mock_client.chat.completions.create.call_args
-        user_prompt = call_args[1]['messages'][1]['content']
+        call_args = mock_client.messages.create.call_args
+        user_prompt = call_args.kwargs['messages'][0]['content']
         self.assertIn('(hidden—show only if user asks)', user_prompt)
 
     @patch('app.deliberation.second_round_agent.client')
@@ -335,7 +331,7 @@ class TestBuildReply(unittest.TestCase):
         event_id = 'test_event'
 
         mock_fetch_prompt.return_value = {'system_prompt': '', 'user_prompt': ''}
-        mock_client.chat.completions.create.side_effect = Exception('API Error')
+        mock_client.messages.create.side_effect = Exception('API Error')
 
         result = _build_reply(
             user_msg, event_id, 'summary', [], [], {}, None, [], False
@@ -353,9 +349,8 @@ class TestBuildReply(unittest.TestCase):
         mock_fetch_prompt.return_value = {'system_prompt': '', 'user_prompt': ''}
 
         mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = None
-        mock_client.chat.completions.create.return_value = mock_response
+        mock_response.content[0].text = ''
+        mock_client.messages.create.return_value = mock_response
 
         result = _build_reply(
             user_msg, event_id, 'summary', ['claim'], ['opp'], {}, None, [], False
@@ -380,17 +375,16 @@ class TestBuildReply(unittest.TestCase):
         }
 
         mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = 'Response'
-        mock_client.chat.completions.create.return_value = mock_response
+        mock_response.content[0].text = 'Response'
+        mock_client.messages.create.return_value = mock_response
 
         result = _build_reply(
             user_msg, event_id, 'summary', [], [], {}, None, recent_turns, False
         )
 
         # Verify the history block was created and long text was truncated
-        call_args = mock_client.chat.completions.create.call_args
-        user_prompt = call_args[1]['messages'][1]['content']
+        call_args = mock_client.messages.create.call_args
+        user_prompt = call_args.kwargs['messages'][0]['content']
         self.assertIn('Recent Dialogue', user_prompt)
         self.assertIn('…', user_prompt)  # Truncation marker
 

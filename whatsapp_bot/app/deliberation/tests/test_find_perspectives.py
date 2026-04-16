@@ -34,10 +34,9 @@ class TestSelectAgreeableOpposing(unittest.TestCase):
             "Fossil fuels are necessary"
         ]
 
-        # Mock OpenAI response
+        # Mock Anthropic response
         mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = (
+        mock_response.content[0].text = (
             "**Agreeable Claims:**\n"
             "- [0] Solar power is the future\n"
             "- [2] Wind energy is cost-effective\n\n"
@@ -46,7 +45,7 @@ class TestSelectAgreeableOpposing(unittest.TestCase):
             "- [3] Fossil fuels are necessary\n\n"
             "**Reason:** The user supports clean energy."
         )
-        mock_client.chat.completions.create.return_value = mock_response
+        mock_client.messages.create.return_value = mock_response
 
         # Execute
         result = _select_agreeable_opposing(summary, bank)
@@ -55,14 +54,13 @@ class TestSelectAgreeableOpposing(unittest.TestCase):
         self.assertIn("Agreeable Claims", result)
         self.assertIn("Opposing Claims", result)
         self.assertIn("Reason", result)
-        mock_client.chat.completions.create.assert_called_once()
+        mock_client.messages.create.assert_called_once()
 
         # Verify call arguments
-        call_args = mock_client.chat.completions.create.call_args
-        self.assertEqual(call_args.kwargs['model'], 'gpt-4o')
-        self.assertEqual(call_args.kwargs['temperature'], 0.4)
+        call_args = mock_client.messages.create.call_args
+        self.assertEqual(call_args.kwargs['model'], 'claude-opus-4-6')
         self.assertEqual(call_args.kwargs['max_tokens'], 1200)
-        self.assertEqual(len(call_args.kwargs['messages']), 2)
+        self.assertEqual(len(call_args.kwargs['messages']), 1)
 
     @patch('app.deliberation.find_perspectives.client')
     def test_select_agreeable_opposing_empty_summary(self, mock_client):
@@ -71,14 +69,13 @@ class TestSelectAgreeableOpposing(unittest.TestCase):
         bank = ["Claim 1", "Claim 2"]
 
         mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = "**Reason:** No summary provided."
-        mock_client.chat.completions.create.return_value = mock_response
+        mock_response.content[0].text = "**Reason:** No summary provided."
+        mock_client.messages.create.return_value = mock_response
 
         result = _select_agreeable_opposing(summary, bank)
 
         # Should still make API call
-        mock_client.chat.completions.create.assert_called_once()
+        mock_client.messages.create.assert_called_once()
         self.assertIsInstance(result, str)
 
     @patch('app.deliberation.find_perspectives.client')
@@ -88,13 +85,12 @@ class TestSelectAgreeableOpposing(unittest.TestCase):
         bank = []
 
         mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = "No claims available."
-        mock_client.chat.completions.create.return_value = mock_response
+        mock_response.content[0].text = "No claims available."
+        mock_client.messages.create.return_value = mock_response
 
         result = _select_agreeable_opposing(summary, bank)
 
-        mock_client.chat.completions.create.assert_called_once()
+        mock_client.messages.create.assert_called_once()
         self.assertIsInstance(result, str)
 
     @patch('app.deliberation.find_perspectives.client')
@@ -104,9 +100,8 @@ class TestSelectAgreeableOpposing(unittest.TestCase):
         bank = ["Claim 1"]
 
         mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = None
-        mock_client.chat.completions.create.return_value = mock_response
+        mock_response.content[0].text = ""
+        mock_client.messages.create.return_value = mock_response
 
         result = _select_agreeable_opposing(summary, bank)
 
@@ -120,15 +115,14 @@ class TestSelectAgreeableOpposing(unittest.TestCase):
         bank = ["First claim", "Second claim", "Third claim"]
 
         mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = "Result"
-        mock_client.chat.completions.create.return_value = mock_response
+        mock_response.content[0].text = "Result"
+        mock_client.messages.create.return_value = mock_response
 
         _select_agreeable_opposing(summary, bank)
 
         # Check that the user prompt contains formatted claims
-        call_args = mock_client.chat.completions.create.call_args
-        user_message = call_args.kwargs['messages'][1]['content']
+        call_args = mock_client.messages.create.call_args
+        user_message = call_args.kwargs['messages'][0]['content']
 
         self.assertIn("[0] First claim", user_message)
         self.assertIn("[1] Second claim", user_message)

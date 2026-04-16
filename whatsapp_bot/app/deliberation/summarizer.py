@@ -12,18 +12,15 @@ def _summarize_user_messages(messages: List[str]) -> str:
     user_input = "Here are the user's messages:\n\n" + "\n".join(f"- {m}" for m in messages if m)
 
     try:
-        resp = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_message},
-                {"role": "user", "content": user_input},
-            ],
+        resp = client.messages.create(
+            model="claude-opus-4-6",
             max_tokens=300,
-            temperature=0.2,
+            system=[{"type": "text", "text": system_message, "cache_control": {"type": "ephemeral"}}],
+            messages=[{"role": "user", "content": user_input}],
         )
-        return (resp.choices[0].message.content or "").strip() or "Summary unavailable."
+        return resp.content[0].text.strip() or "Summary unavailable."
     except Exception as e:
-        logger.error(f"[summarizer] OpenAI error: {e}")
+        logger.error(f"[summarizer] Anthropic error: {e}")
         return "⚠️ Error generating summary."
 
 def summarize_and_store(event_id: str, only_for: Optional[Iterable[str]] = None) -> int:

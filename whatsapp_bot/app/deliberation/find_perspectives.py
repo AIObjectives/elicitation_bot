@@ -14,14 +14,13 @@ def _select_agreeable_opposing(summary: str, bank: List[str]) -> str:
         "**Reason:** <one sentence>"
     )
     user_prompt = f"User Summary:\n{summary}\n\nClaim Texts:\n{body}"
-    resp = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[{"role": "system", "content": system_prompt},
-                  {"role": "user", "content": user_prompt}],
-        temperature=0.4,
+    resp = client.messages.create(
+        model="claude-opus-4-6",
         max_tokens=1200,
+        system=[{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}],
+        messages=[{"role": "user", "content": user_prompt}],
     )
-    return (resp.choices[0].message.content or "").strip()
+    return resp.content[0].text.strip()
 
 def _parse_selection(block: str):
     agreeable, opposing, reason = [], [], None

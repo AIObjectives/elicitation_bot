@@ -5,15 +5,15 @@ from decouple import config as _config
 import firebase_admin
 from firebase_admin import credentials, firestore
 from twilio.rest import Client as TwilioClient
-from openai import OpenAI as _OpenAI
-import openai
+import anthropic
+from openai import OpenAI as _OpenAI  # Kept for Whisper audio transcription only
 
 # Environment variables
-OPENAI_API_KEY      = _config('OPENAI_API_KEY')
+ANTHROPIC_API_KEY   = _config('ANTHROPIC_API_KEY')
+OPENAI_API_KEY      = _config('OPENAI_API_KEY', default='')  # For Whisper audio transcription
 TWILIO_ACCOUNT_SID  = _config('TWILIO_ACCOUNT_SID')
 TWILIO_AUTH_TOKEN   = _config('TWILIO_AUTH_TOKEN')
 TWILIO_NUMBER       = _config('TWILIO_NUMBER')
-ASSISTANT_ID        = _config('ASSISTANT_ID')
 FIREBASE_CREDS_JSON = _config('FIREBASE_CREDENTIALS_JSON')
 
 # Firebase setup
@@ -25,16 +25,14 @@ db = firestore.client()
 logger = logging.getLogger("whatsapp_bot")
 logging.basicConfig(level=logging.INFO)
 
-# OpenAI client
-openai.api_key = OPENAI_API_KEY
-OpenAI = _OpenAI
-client = OpenAI()
-assistant_id = ASSISTANT_ID
+# Anthropic client (primary LLM)
+client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+# OpenAI client (audio transcription only — Whisper)
+openai_client = _OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 # Twilio client
 twilio_client = TwilioClient(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
-twilio_number     = TWILIO_NUMBER
+twilio_number      = TWILIO_NUMBER
 twilio_account_sid = TWILIO_ACCOUNT_SID
 twilio_auth_token  = TWILIO_AUTH_TOKEN
-
-
