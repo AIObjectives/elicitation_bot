@@ -1,5 +1,6 @@
 import logging
 import io
+import os
 import requests
 from fastapi import Response
 from requests.auth import HTTPBasicAuth
@@ -8,13 +9,12 @@ from datetime import datetime, timedelta
 from firebase_admin import credentials, firestore
 
 from config.config import (
-    db, logger, client, twilio_client,
-    twilio_number, assistant_id,
+    db, logger, client, openai_client, twilio_client,
+    twilio_number,
     twilio_account_sid, twilio_auth_token
 )
 from app.services.twilio_service import send_message
 from app.services.openai_service import (
-    extract_text_from_messages,
     extract_name_with_llm,
     extract_event_id_with_llm,
     event_id_valid,
@@ -34,6 +34,8 @@ from app.deliberation.second_round_agent import run_second_round_for_user
 from app.utils.validators import _norm, normalize_phone
 
 from app.utils.blocklist_helpers import is_blocked_number, get_interaction_limit
+
+DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "claude-opus-4-6")
 
 
 
@@ -311,7 +313,7 @@ async def reply_followup(Body: str, From: str, MediaUrl0: str = None):
                 audio_stream = io.BytesIO(response.content)
                 audio_stream.name = 'file.ogg'
                 try:
-                    transcription_result = client.audio.transcriptions.create(
+                    transcription_result = openai_client.audio.transcriptions.create(
                         model="whisper-1",
                         file=audio_stream
                     )
@@ -598,27 +600,20 @@ async def reply_followup(Body: str, From: str, MediaUrl0: str = None):
         return Response(status_code=200)
 
     # Send user prompt to LLM
-    thread = client.beta.threads.create()
-    client.beta.threads.messages.create(
-        thread_id=thread.id,
-        role="user",
-        content=Body
-    )
-
     ParticipantService.append_interaction(current_event_id, normalized_phone, {'message': Body})
 
-    run = client.beta.threads.runs.create_and_poll(
-        thread_id=thread.id,
-        assistant_id=assistant_id,
-        instructions=event_instructions
-    )
-
-    if run.status == 'completed':
-        messages = client.beta.threads.messages.list(thread_id=thread.id)
-        assistant_response = extract_text_from_messages(messages)
+    try:
+        response = client.messages.create(
+            model=DEFAULT_MODEL,
+            max_tokens=1024,
+            system=[{"type": "text", "text": event_instructions, "cache_control": {"type": "ephemeral"}}],
+            messages=[{"role": "user", "content": Body}],
+        )
+        assistant_response = response.content[0].text
         send_message(From, assistant_response)
         ParticipantService.append_interaction(current_event_id, normalized_phone, {'response': assistant_response})
-    else:
+    except Exception as e:
+        logger.exception(f"[LLM Exception] Error: {e}")
         send_message(From, "There was an issue processing your request.")
 
     return Response(status_code=200)

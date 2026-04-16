@@ -28,24 +28,22 @@ class TestSummarizeUserMessages(unittest.TestCase):
             "Very informative session."
         ]
 
-        # Mock OpenAI response
+        # Mock Anthropic response
         mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = "User had a positive experience with great speakers."
-        mock_client.chat.completions.create.return_value = mock_response
+        mock_response.content[0].text = "User had a positive experience with great speakers."
+        mock_client.messages.create.return_value = mock_response
 
         result = _summarize_user_messages(messages)
 
         # Assertions
         self.assertEqual(result, "User had a positive experience with great speakers.")
-        mock_client.chat.completions.create.assert_called_once()
+        mock_client.messages.create.assert_called_once()
 
         # Verify the call arguments
-        call_args = mock_client.chat.completions.create.call_args
-        self.assertEqual(call_args.kwargs['model'], 'gpt-4o-mini')
+        call_args = mock_client.messages.create.call_args
+        self.assertEqual(call_args.kwargs['model'], 'claude-opus-4-6')
         self.assertEqual(call_args.kwargs['max_tokens'], 300)
-        self.assertEqual(call_args.kwargs['temperature'], 0.2)
-        self.assertEqual(len(call_args.kwargs['messages']), 2)
+        self.assertEqual(len(call_args.kwargs['messages']), 1)
 
     @patch('app.deliberation.summarizer.client')
     def test_summarize_empty_messages(self, mock_client):
@@ -55,24 +53,23 @@ class TestSummarizeUserMessages(unittest.TestCase):
         result = _summarize_user_messages(messages)
 
         self.assertEqual(result, "No messages to summarize.")
-        mock_client.chat.completions.create.assert_not_called()
+        mock_client.messages.create.assert_not_called()
 
     @patch('app.deliberation.summarizer.client')
     def test_summarize_none_messages(self, mock_client):
         """Test summarization with None in message list."""
         messages = ["First message", None, "Second message", "", "Third message"]
 
-        # Mock OpenAI response
+        # Mock Anthropic response
         mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = "Summary of messages."
-        mock_client.chat.completions.create.return_value = mock_response
+        mock_response.content[0].text = "Summary of messages."
+        mock_client.messages.create.return_value = mock_response
 
         result = _summarize_user_messages(messages)
 
         # Should still work, filtering out None and empty strings
         self.assertEqual(result, "Summary of messages.")
-        mock_client.chat.completions.create.assert_called_once()
+        mock_client.messages.create.assert_called_once()
 
     @patch('app.deliberation.summarizer.client')
     @patch('app.deliberation.summarizer.logger')
@@ -81,7 +78,7 @@ class TestSummarizeUserMessages(unittest.TestCase):
         messages = ["Test message"]
 
         # Mock OpenAI to raise an exception
-        mock_client.chat.completions.create.side_effect = Exception("API Error")
+        mock_client.messages.create.side_effect = Exception("API Error")
 
         result = _summarize_user_messages(messages)
 
@@ -93,11 +90,10 @@ class TestSummarizeUserMessages(unittest.TestCase):
         """Test handling of empty response from OpenAI."""
         messages = ["Test message"]
 
-        # Mock OpenAI with empty response
+        # Mock Anthropic with empty response
         mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = ""
-        mock_client.chat.completions.create.return_value = mock_response
+        mock_response.content[0].text = ""
+        mock_client.messages.create.return_value = mock_response
 
         result = _summarize_user_messages(messages)
 
@@ -108,11 +104,10 @@ class TestSummarizeUserMessages(unittest.TestCase):
         """Test handling of whitespace-only response from OpenAI."""
         messages = ["Test message"]
 
-        # Mock OpenAI with whitespace response
+        # Mock Anthropic with whitespace response
         mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = "   \n\t  "
-        mock_client.chat.completions.create.return_value = mock_response
+        mock_response.content[0].text = "   \n\t  "
+        mock_client.messages.create.return_value = mock_response
 
         result = _summarize_user_messages(messages)
 
@@ -123,11 +118,10 @@ class TestSummarizeUserMessages(unittest.TestCase):
         """Test handling of None response from OpenAI."""
         messages = ["Test message"]
 
-        # Mock OpenAI with None response
+        # Mock Anthropic with empty response
         mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = None
-        mock_client.chat.completions.create.return_value = mock_response
+        mock_response.content[0].text = ""
+        mock_client.messages.create.return_value = mock_response
 
         result = _summarize_user_messages(messages)
 
@@ -140,14 +134,13 @@ class TestSummarizeUserMessages(unittest.TestCase):
 
         # Mock OpenAI response
         mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = "Summary of 100 messages."
-        mock_client.chat.completions.create.return_value = mock_response
+        mock_response.content[0].text = "Summary of 100 messages."
+        mock_client.messages.create.return_value = mock_response
 
         result = _summarize_user_messages(messages)
 
         self.assertEqual(result, "Summary of 100 messages.")
-        mock_client.chat.completions.create.assert_called_once()
+        mock_client.messages.create.assert_called_once()
 
 
 class TestSummarizeAndStore(unittest.TestCase):
@@ -195,9 +188,8 @@ class TestSummarizeAndStore(unittest.TestCase):
 
         # Mock OpenAI responses
         mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = "Summarized content"
-        mock_client.chat.completions.create.return_value = mock_response
+        mock_response.content[0].text = "Summarized content"
+        mock_client.messages.create.return_value = mock_response
 
         # Execute
         result = summarize_and_store(event_id)
@@ -241,7 +233,7 @@ class TestSummarizeAndStore(unittest.TestCase):
         # Assertions
         self.assertEqual(result, 0)  # No participants updated
         mock_participant_service.batch_update_participants.assert_not_called()
-        mock_client.chat.completions.create.assert_not_called()
+        mock_client.messages.create.assert_not_called()
 
     @patch('app.deliberation.summarizer.client')
     @patch('app.deliberation.summarizer.ParticipantService')
@@ -268,7 +260,7 @@ class TestSummarizeAndStore(unittest.TestCase):
         # Assertions
         self.assertEqual(result, 0)
         mock_participant_service.batch_update_participants.assert_not_called()
-        mock_client.chat.completions.create.assert_not_called()
+        mock_client.messages.create.assert_not_called()
 
     @patch('app.deliberation.summarizer.client')
     @patch('app.deliberation.summarizer.ParticipantService')
@@ -301,9 +293,8 @@ class TestSummarizeAndStore(unittest.TestCase):
 
         # Mock OpenAI responses
         mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = "Summarized"
-        mock_client.chat.completions.create.return_value = mock_response
+        mock_response.content[0].text = "Summarized"
+        mock_client.messages.create.return_value = mock_response
 
         # Execute
         result = summarize_and_store(event_id, only_for=only_for)
@@ -362,9 +353,8 @@ class TestSummarizeAndStore(unittest.TestCase):
 
         # Mock OpenAI responses
         mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = "Summary of valid messages"
-        mock_client.chat.completions.create.return_value = mock_response
+        mock_response.content[0].text = "Summary of valid messages"
+        mock_client.messages.create.return_value = mock_response
 
         # Execute
         result = summarize_and_store(event_id)
@@ -372,9 +362,9 @@ class TestSummarizeAndStore(unittest.TestCase):
         # Assertions
         self.assertEqual(result, 1)
 
-        # Verify that only valid messages were passed to OpenAI
-        call_args = mock_client.chat.completions.create.call_args
-        user_message = call_args.kwargs['messages'][1]['content']
+        # Verify that only valid messages were passed to Anthropic
+        call_args = mock_client.messages.create.call_args
+        user_message = call_args.kwargs['messages'][0]['content']
         self.assertIn('Valid message 1', user_message)
         self.assertIn('Valid message 2', user_message)
         self.assertNotIn('not a dict', user_message)

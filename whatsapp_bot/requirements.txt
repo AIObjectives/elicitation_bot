@@ -6,6 +6,7 @@ twilio
 python-dotenv
 requests
 openai
+anthropic
 python-multipart
 pydub
 

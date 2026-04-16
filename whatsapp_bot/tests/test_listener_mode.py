@@ -680,8 +680,7 @@ class TestListenerModeNormalConversation(unittest.IsolatedAsyncioTestCase):
     @patch('app.handlers.ListenerMode.send_message')
     @patch('app.handlers.ListenerMode.client')
     @patch('app.handlers.ListenerMode.generate_bot_instructions')
-    @patch('app.handlers.ListenerMode.extract_text_from_messages')
-    async def test_normal_conversation_flow(self, mock_extract_text, mock_gen_instr, mock_client,
+    async def test_normal_conversation_flow(self, mock_gen_instr, mock_client,
                                            mock_send, mock_part_svc, mock_event_svc, mock_user_svc):
         """Test normal conversation with LLM."""
         # Setup
@@ -701,19 +700,9 @@ class TestListenerModeNormalConversation(unittest.IsolatedAsyncioTestCase):
         mock_event_svc.get_welcome_message.return_value = 'Welcome!'
         mock_part_svc.get_interaction_count.return_value = 10
         mock_gen_instr.return_value = 'Bot instructions'
-        mock_extract_text.return_value = 'AI response'
 
-        # Mock OpenAI client
-        mock_thread = Mock()
-        mock_thread.id = 'thread123'
-        mock_client.beta.threads.create.return_value = mock_thread
-
-        mock_run = Mock()
-        mock_run.status = 'completed'
-        mock_client.beta.threads.runs.create_and_poll.return_value = mock_run
-
-        mock_messages = Mock()
-        mock_client.beta.threads.messages.list.return_value = mock_messages
+        # Mock Anthropic client
+        mock_client.messages.create.return_value.content[0].text = 'AI response'
 
         # Execute
         response = await reply_listener(Body='Hello bot', From='+1234567890')
@@ -721,7 +710,7 @@ class TestListenerModeNormalConversation(unittest.IsolatedAsyncioTestCase):
         # Assert
         mock_part_svc.initialize_participant.assert_called_once_with('test123', '1234567890')
         mock_part_svc.get_interaction_count.assert_called_once_with('test123', '1234567890')
-        mock_client.beta.threads.create.assert_called_once()
+        mock_client.messages.create.assert_called_once()
         mock_part_svc.append_interaction.assert_called()
         mock_send.assert_called_once_with('+1234567890', 'AI response')
         self.assertEqual(response.status_code, 200)

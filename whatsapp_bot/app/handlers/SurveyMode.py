@@ -13,13 +13,12 @@ from pydub import AudioSegment
 from fastapi import Response
 
 from config.config import (
-    db, logger, client, twilio_client,
-    twilio_number, assistant_id,
+    db, logger, openai_client, twilio_client,
+    twilio_number,
     twilio_account_sid, twilio_auth_token
 )
 from app.services.twilio_service import send_message
 from app.services.openai_service import (
-    extract_text_from_messages,
     extract_name_with_llm,
     extract_event_id_with_llm,
     event_id_valid,
@@ -217,7 +216,7 @@ async def reply_survey(Body: str, From: str, MediaUrl0: str = None):
                 audio_stream = io.BytesIO(resp.content)
                 audio_stream.name = 'file.ogg'
                 try:
-                    tr = client.audio.transcriptions.create(model="whisper-1", file=audio_stream)
+                    tr = openai_client.audio.transcriptions.create(model="whisper-1", file=audio_stream)
                     Body = tr.text
                 except Exception as e:
                     return Response(status_code=500, content=str(e))
@@ -345,7 +344,7 @@ async def reply_survey(Body: str, From: str, MediaUrl0: str = None):
                 audio_stream = io.BytesIO(resp.content)
                 audio_stream.name = 'file.ogg'
                 try:
-                    tr = client.audio.transcriptions.create(model="whisper-1", file=audio_stream)
+                    tr = openai_client.audio.transcriptions.create(model="whisper-1", file=audio_stream)
                     Body = tr.text
                 except Exception as e:
                     logger.exception("Error during audio transcription in survey reply handler")
