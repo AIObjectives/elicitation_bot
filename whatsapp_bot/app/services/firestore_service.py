@@ -257,7 +257,7 @@ class EventService:
             Initial message string (with default fallback)
         """
         info = EventService.get_event_info(event_id)
-        default_message = "Thank you for agreeing to participate..."
+        default_message = "Thank you for participating in our follow-up conversation. We appreciate your time and insights. Please share your thoughts on the following topics."
         return info.get('initial_message', default_message) if info else default_message
 
     @staticmethod
